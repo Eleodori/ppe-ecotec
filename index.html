@@ -612,7 +612,10 @@ const DBG = {
   gpsLast: null,
   refreshCount: 0,
   refreshPerSec: 0,
+  gpsRefreshCount: 0,
+  gpsRefreshPerSec: 0,
   _refreshTick: 0,
+  _gpsRefreshTick: 0,
   _initialized: false,
   _tapCount: 0,
   _tapTimer: null,
@@ -803,7 +806,7 @@ function dbgRender() {
     : '0 fix';
   document.getElementById('dbgStats').innerHTML = `
     <div class="dbg-row dbg-gps">GPS ${gpsStr}</div>
-    <div class="dbg-row" style="color:#d4d4d8">refresh ${DBG.refreshPerSec}/s · tot:${DBG.refreshCount}</div>`;
+    <div class="dbg-row" style="color:#d4d4d8">refresh tot:${DBG.refreshCount} (${DBG.refreshPerSec}/s) · gps:${DBG.gpsRefreshCount} (${DBG.gpsRefreshPerSec}/s)</div>`;
 }
 
 function dbgInit() {
@@ -815,6 +818,8 @@ function dbgInit() {
   setInterval(() => {
     DBG.refreshPerSec = DBG.refreshCount - DBG._refreshTick;
     DBG._refreshTick = DBG.refreshCount;
+    DBG.gpsRefreshPerSec = DBG.gpsRefreshCount - DBG._gpsRefreshTick;
+    DBG._gpsRefreshTick = DBG.gpsRefreshCount;
     if (DBG.active) dbgRender();
   }, 1000);
   if (DBG.active) dbgRender();
@@ -1005,8 +1010,15 @@ window.clearProblem = function(pvId) {
 
 function _doRecenter(lat, lng) {
   STATE._programmaticMove = true;
+  const clearFlag = () => {
+    STATE._programmaticMove = false;
+    STATE.map.off('moveend', clearFlag);
+    STATE.map.off('zoomend', clearFlag);
+  };
+  STATE.map.once('moveend', clearFlag);
+  STATE.map.once('zoomend', clearFlag);
+  setTimeout(clearFlag, 800); // fallback se l'animazione non spara eventi
   STATE.map.setView([lat, lng], Math.max(STATE.map.getZoom(), 12), { animate: true });
-  setTimeout(() => { STATE._programmaticMove = false; }, 600);
 }
 
 function startGeolocation(forceCenter=false) {
@@ -1036,6 +1048,7 @@ function startGeolocation(forceCenter=false) {
         const now = Date.now();
         if (movedKm > 0.1 || (now - STATE._lastNearRefreshTs) > 10000) {
           STATE._lastNearRefreshTs = now;
+          DBG.gpsRefreshCount++;
           refreshAllMarkers(); renderList();
         }
 
@@ -1213,15 +1226,17 @@ async function init() {
     if (e.key === 'Escape') closeDetail();
   });
 
+  // Show app first: il container deve avere dimensioni reali prima di fitBounds.
+  // Se il map viene creato dentro display:none, getSize()=0x0 e getBoundsZoom()=NaN→maxZoom(19).
+  document.getElementById('bootMsg').classList.add('gone');
+  document.getElementById('app').style.display = 'grid';
+  STATE.map.invalidateSize({ animate: false });
+
   const lats = PVS.map(p => p.lat), lngs = PVS.map(p => p.lng);
   STATE.map.fitBounds([
     [Math.min(...lats), Math.min(...lngs)],
     [Math.max(...lats), Math.max(...lngs)]
   ], { padding: [40, 40] });
-
-  // Show app, hide boot
-  document.getElementById('bootMsg').classList.add('gone');
-  document.getElementById('app').style.display = 'grid';
 
   // Register service worker for PWA offline support
   if ('serviceWorker' in navigator) {
