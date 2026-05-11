@@ -420,6 +420,34 @@ aside {
 }
 .first-tip strong { color: var(--text); }
 .first-tip.hidden { display: none; }
+
+/* === Debug overlay === */
+#dbgOverlay {
+  position: fixed;
+  top: calc(var(--header-h) + var(--safe-top) + 8px);
+  right: 8px;
+  width: 270px;
+  background: rgba(0,0,0,.9);
+  border: 1px solid #3f3f46;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: #e4e4e7;
+  z-index: 1400;
+  display: none;
+  box-shadow: 0 4px 20px rgba(0,0,0,.7);
+}
+#dbgOverlay.on { display: block; }
+.dbg-head { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: #71717a; display: flex; justify-content: space-between; margin-bottom: 6px; }
+.dbg-x { cursor: pointer; padding: 0 2px; }
+.dbg-x:hover { color: #fafafa; }
+.dbg-row { padding: 2px 0; border-bottom: 1px solid #27272a; line-height: 1.55; }
+.dbg-row:last-child { border-bottom: none; }
+.dbg-prog { color: #f59e0b; }
+.dbg-user { color: #86efac; }
+.dbg-gps  { color: #93c5fd; }
+.dbg-dim  { color: #71717a; }
 </style>
 </head>
 <body>
@@ -518,6 +546,12 @@ aside {
   </div>
 
   <div class="toast" id="toast"></div>
+
+  <div id="dbgOverlay">
+    <div class="dbg-head"><span>&#x1f50d; Debug</span><span class="dbg-x" id="dbgClose">[×]</span></div>
+    <div id="dbgLog"><div class="dbg-row dbg-dim">nessun evento mappa</div></div>
+    <div id="dbgStats"></div>
+  </div>
 </div>
 
 <input type="file" id="importFile" accept=".json" hidden>
@@ -567,6 +601,19 @@ const STATE = {
   meAccuracyCircle: null,
   map: null,
   saveTimer: null,
+};
+
+const DBG = {
+  active: new URLSearchParams(location.search).has('debug'),
+  log: [],
+  gpsCount: 0,
+  gpsLast: null,
+  refreshCount: 0,
+  refreshPerSec: 0,
+  _refreshTick: 0,
+  _initialized: false,
+  _tapCount: 0,
+  _tapTimer: null,
 };
 
 const Store = {
@@ -721,7 +768,54 @@ function refreshMarker(pvId) {
   }
 }
 function refreshAllMarkers() {
+  DBG.refreshCount++;
   for (const pv of PVS) refreshMarker(pv.pv);
+}
+
+function dbgLogEvent(ev) {
+  const zoom = STATE.map ? STATE.map.getZoom() : '?';
+  const prog = STATE._programmaticMove;
+  DBG.log.unshift({ t: Date.now(), ev, zoom, prog });
+  if (DBG.log.length > 7) DBG.log.pop();
+  if (DBG.active) dbgRender();
+}
+
+function dbgRender() {
+  const overlay = document.getElementById('dbgOverlay');
+  if (!overlay) return;
+  if (!DBG.active) { overlay.classList.remove('on'); return; }
+  overlay.classList.add('on');
+  const now = Date.now();
+  const logHtml = DBG.log.length
+    ? DBG.log.map(e => {
+        const dt = ((now - e.t) / 1000).toFixed(1);
+        const cls = e.prog ? 'dbg-prog' : 'dbg-user';
+        const who = e.prog ? 'CODE★' : 'user';
+        return `<div class="dbg-row"><span class="${cls}">${e.ev}</span> <span style="color:#a1a1aa">z:${e.zoom} −${dt}s [${who}]</span></div>`;
+      }).join('')
+    : '<div class="dbg-row dbg-dim">nessun evento</div>';
+  document.getElementById('dbgLog').innerHTML = logHtml;
+
+  const gpsStr = DBG.gpsLast
+    ? `#${DBG.gpsCount} acc:${Math.round(DBG.gpsLast.acc)}m ${((now - DBG.gpsLast.t)/1000).toFixed(0)}s fa`
+    : '0 fix';
+  document.getElementById('dbgStats').innerHTML = `
+    <div class="dbg-row dbg-gps">GPS ${gpsStr}</div>
+    <div class="dbg-row" style="color:#d4d4d8">refresh ${DBG.refreshPerSec}/s · tot:${DBG.refreshCount}</div>`;
+}
+
+function dbgInit() {
+  if (DBG._initialized) { dbgRender(); return; }
+  DBG._initialized = true;
+  ['zoomstart', 'zoomend', 'movestart', 'moveend'].forEach(ev => {
+    STATE.map.on(ev, () => dbgLogEvent(ev));
+  });
+  setInterval(() => {
+    DBG.refreshPerSec = DBG.refreshCount - DBG._refreshTick;
+    DBG._refreshTick = DBG.refreshCount;
+    if (DBG.active) dbgRender();
+  }, 1000);
+  if (DBG.active) dbgRender();
 }
 
 function isPvVisibleInList(p) {
@@ -916,6 +1010,8 @@ function startGeolocation(forceCenter=false) {
         const lat = pos.coords.latitude, lng = pos.coords.longitude;
         const wasNull = !STATE.position;
         STATE.position = { lat, lng, accuracy: pos.coords.accuracy };
+        DBG.gpsCount++;
+        DBG.gpsLast = { lat, lng, acc: pos.coords.accuracy, t: Date.now() };
         updateMeMarker();
         if (wasNull || forceCenter) {
           STATE._programmaticMove = true;
@@ -1011,11 +1107,27 @@ function importJson(file) {
 async function init() {
   await loadFromStorage();
   initMap();
+  dbgInit();
   renderCounters();
   renderFilters();
   renderList();
 
   document.getElementById('locateBtn').addEventListener('click', () => startGeolocation(true));
+
+  document.getElementById('dbgClose').addEventListener('click', () => {
+    DBG.active = false; dbgRender();
+  });
+  document.querySelector('.brand-mark').addEventListener('click', () => {
+    DBG._tapCount++;
+    clearTimeout(DBG._tapTimer);
+    DBG._tapTimer = setTimeout(() => { DBG._tapCount = 0; }, 1200);
+    if (DBG._tapCount >= 5) {
+      DBG._tapCount = 0;
+      DBG.active = !DBG.active;
+      toast(DBG.active ? 'Debug ON' : 'Debug OFF');
+      dbgRender();
+    }
+  });
 
   const menuPop = document.getElementById('menuPop');
   document.getElementById('menuBtn').addEventListener('click', e => {
