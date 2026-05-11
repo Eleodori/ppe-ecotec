@@ -29,6 +29,7 @@
   --shadow-lg: 0 20px 50px -10px rgba(0,0,0,.8);
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --map-bg: #e8e8e8;
   --header-h: 56px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bot: env(safe-area-inset-bottom, 0px);
@@ -131,8 +132,8 @@ main {
   overflow: hidden;
 }
 @media (min-width: 900px) { main { grid-template-columns: 1fr 380px; } }
-#map { width: 100%; height: 100%; background: #1a1a1a; }
-.leaflet-container { background: #1a1a1a; font-family: var(--font-sans); }
+#map { width: 100%; height: 100%; background: var(--map-bg); }
+.leaflet-container { background: var(--map-bg); font-family: var(--font-sans); }
 .leaflet-tooltip.pv-tt {
   background: rgba(24,24,27,.95); color: #fafafa; border: 1px solid #3f3f46;
   font-family: var(--font-mono); font-size: 11px; font-weight: 600;
@@ -497,6 +498,7 @@ aside {
     <button id="btnExportCsv">⬇ Completati (CSV)</button>
     <button id="btnImportJson">⬆ Importa backup</button>
     <hr>
+    <button id="btnToggleTheme">🌙 Mappa scura</button>
     <button id="btnAbout">ⓘ Info</button>
   </div>
 
@@ -555,6 +557,8 @@ const STATE = {
   watchId: null,
   follow: false,
   _programmaticMove: false,
+  darkMap: false,
+  tileLayer: null,
   radiusKm: 10,
   filters: { hideDone: true, nearOnly: false, region: 'all', query: '' },
   selectedPv: null,
@@ -588,7 +592,7 @@ function saveUserState() {
   }, 400);
 }
 function saveSettings() {
-  Store.set('settings', JSON.stringify({ radiusKm: STATE.radiusKm, filters: STATE.filters }));
+  Store.set('settings', JSON.stringify({ radiusKm: STATE.radiusKm, filters: STATE.filters, darkMap: STATE.darkMap }));
 }
 
 async function loadFromStorage() {
@@ -605,6 +609,7 @@ async function loadFromStorage() {
       const s = JSON.parse(set);
       if (s.radiusKm) STATE.radiusKm = s.radiusKm;
       if (s.filters) STATE.filters = { ...STATE.filters, ...s.filters };
+      if (s.darkMap != null) STATE.darkMap = s.darkMap;
     } catch(e) {}
   }
 }
@@ -644,11 +649,13 @@ function initMap() {
     preferCanvas: true,
     renderer: L.canvas(),
   }).setView([44.5, 10.5], 7);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    subdomains: 'abcd',
-    attribution: '© <a href="https://www.openstreetmap.org/copyright">OSM</a> · CARTO',
-  }).addTo(STATE.map);
+  document.documentElement.style.setProperty('--map-bg', STATE.darkMap ? '#1a1a1a' : '#e8e8e8');
+  STATE.tileLayer = L.tileLayer(
+    STATE.darkMap
+      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
+      : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+    { maxZoom: 19, subdomains: 'abcd', attribution: '© <a href="https://www.openstreetmap.org/copyright">OSM</a> · CARTO' }
+  ).addTo(STATE.map);
 
   for (const p of PVS) {
     const m = L.circleMarker([p.lat, p.lng], { ...markerStyle(p), bubblingMouseEvents: false });
@@ -673,16 +680,33 @@ function markerStyle(p) {
   const status = statusOf(p);
   const selected = STATE.selectedPv === p.pv;
   const near = STATE.position && haversine(STATE.position, p) <= STATE.radiusKm;
+  const dark = STATE.darkMap;
   let fillColor = '#f59e0b';
   if (status === 'done') fillColor = '#22c55e';
   if (status === 'problem') fillColor = '#ef4444';
   return {
     radius: selected ? 11 : (near ? 9 : 7),
     fillColor,
-    color: selected ? '#fafafa' : (near ? 'rgba(255,255,255,0.6)' : '#0a0a0a'),
+    color: selected ? (dark ? '#fafafa' : '#111827')
+         : near    ? (dark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.45)')
+         :            (dark ? '#0a0a0a' : '#374151'),
     weight: selected ? 3 : (near ? 2 : 1.5),
     fillOpacity: 0.95,
   };
+}
+
+function setMapTheme(dark) {
+  STATE.darkMap = dark;
+  STATE.tileLayer.setUrl(
+    dark
+      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
+      : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'
+  );
+  document.documentElement.style.setProperty('--map-bg', dark ? '#1a1a1a' : '#e8e8e8');
+  refreshAllMarkers();
+  saveSettings();
+  const btn = document.getElementById('btnToggleTheme');
+  if (btn) btn.textContent = dark ? '☀ Mappa chiara' : '🌙 Mappa scura';
 }
 
 function refreshMarker(pvId) {
@@ -1035,6 +1059,8 @@ async function init() {
 
   document.getElementById('detailClose').addEventListener('click', closeDetail);
 
+  document.getElementById('btnToggleTheme').textContent = STATE.darkMap ? '☀ Mappa chiara' : '🌙 Mappa scura';
+  document.getElementById('btnToggleTheme').addEventListener('click', () => { setMapTheme(!STATE.darkMap); menuPop.classList.remove('open'); });
   document.getElementById('btnExportJson').addEventListener('click', () => { exportJson(); menuPop.classList.remove('open'); });
   document.getElementById('btnExportCsv').addEventListener('click', () => { exportCsv(); menuPop.classList.remove('open'); });
   document.getElementById('btnImportJson').addEventListener('click', () => { document.getElementById('importFile').click(); menuPop.classList.remove('open'); });
