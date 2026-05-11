@@ -1,9 +1,10 @@
 
-const CACHE = 'pee-field-v1';
+const CACHE = 'pee-field-v2';
 const ASSETS = [
   './',
   './index.html',
   './manifest.json',
+  './pv_data.json',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
 ];
@@ -18,7 +19,7 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const url = e.request.url;
   // Cache-first for app shell & leaflet; network-first for tiles (so they stay fresh) but fall back to cache
-  if (url.includes('tile.openstreetmap.org')) {
+  if (url.includes('basemaps.cartocdn.com')) {
     e.respondWith(
       caches.open(CACHE).then(cache =>
         cache.match(e.request).then(cached => {
