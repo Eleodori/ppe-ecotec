@@ -700,6 +700,7 @@ function initMap() {
     attributionControl: false,
     preferCanvas: true,
     renderer: L.canvas(),
+    tap: false, // user-scalable=no in viewport handles iOS fast-tap natively; disabling Tap prevents double-click on iOS Safari
   }).setView([44.5, 10.5], 7);
   document.documentElement.style.setProperty('--map-bg', STATE.darkMap ? '#1a1a1a' : '#e8e8e8');
   STATE.tileLayer = L.tileLayer(
@@ -709,17 +710,25 @@ function initMap() {
     { maxZoom: 19, subdomains: 'abcd', attribution: '© <a href="https://www.openstreetmap.org/copyright">OSM</a> · CARTO' }
   ).addTo(STATE.map);
 
+  let _lastMarkerClickMs = 0;
   for (const p of PVS) {
     const m = L.circleMarker([p.lat, p.lng], { ...markerStyle(p), bubblingMouseEvents: false });
     m._pv = p.pv;
-    m.on('click', () => selectPv(p.pv));
+    m.on('click', e => {
+      _lastMarkerClickMs = Date.now();
+      L.DomEvent.stopPropagation(e);
+      selectPv(p.pv);
+    });
     m.bindTooltip(String(p.pv), {
       permanent: false, direction: 'top', offset: [0, -8], className: 'pv-tt',
     });
     m.addTo(STATE.map);
     STATE.markers[p.pv] = m;
   }
-  STATE.map.on('click', closeDetail);
+  STATE.map.on('click', () => {
+    if (Date.now() - _lastMarkerClickMs < 350) return;
+    closeDetail();
+  });
   ['dragstart', 'zoomstart'].forEach(ev =>
     STATE.map.on(ev, () => {
       if (STATE._programmaticMove) return;
