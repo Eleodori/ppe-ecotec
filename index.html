@@ -114,6 +114,7 @@ header {
 .counter-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); margin-top: 3px; }
 .counter.todo .counter-val { color: var(--todo); }
 .counter.done .counter-val { color: var(--done); }
+.counter.sopralluogo .counter-val { color: var(--sopralluogo); }
 
 .icon-btn {
   width: 38px; height: 38px;
@@ -486,7 +487,8 @@ aside {
     </div>
     <div class="counters">
       <div class="counter done"><span class="counter-val mono" id="c-done">·</span><span class="counter-lbl">Fatti</span></div>
-      <div class="counter todo"><span class="counter-val mono" id="c-todo">·</span><span class="counter-lbl">Da fare</span></div>
+      <div class="counter todo"><span class="counter-val mono" id="c-inst">·</span><span class="counter-lbl">Inst.</span></div>
+      <div class="counter sopralluogo"><span class="counter-val mono" id="c-soprl">·</span><span class="counter-lbl">Soprl.</span></div>
     </div>
     <button class="icon-btn" id="locateBtn" title="Centra su di me">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
@@ -891,12 +893,15 @@ function sortedFilteredPvs() {
 }
 
 function renderCounters() {
-  let done = 0, todo = 0;
+  let done = 0, inst = 0, soprl = 0;
   for (const p of PVS) {
-    if (statusOf(p) === 'done') done++; else todo++;
+    if (statusOf(p) === 'done') done++;
+    else if (p.tipoTask === 'sopralluogo') soprl++;
+    else inst++;
   }
   document.getElementById('c-done').textContent = done;
-  document.getElementById('c-todo').textContent = todo;
+  document.getElementById('c-inst').textContent = inst;
+  document.getElementById('c-soprl').textContent = soprl;
 }
 
 function renderList() {
