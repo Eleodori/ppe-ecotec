@@ -591,6 +591,8 @@ const STATE = {
   watchId: null,
   follow: false,
   _programmaticMove: false,
+  _pendingRecenter: false,
+  _lastNearRefreshTs: 0,
   darkMap: false,
   tileLayer: null,
   radiusKm: 10,
@@ -1001,24 +1003,42 @@ window.clearProblem = function(pvId) {
   saveUserState(); refreshMarker(pvId); renderCounters(); renderList(); renderDetail(PV_BY_ID[pvId]);
 };
 
+function _doRecenter(lat, lng) {
+  STATE._programmaticMove = true;
+  STATE.map.setView([lat, lng], Math.max(STATE.map.getZoom(), 12), { animate: true });
+  setTimeout(() => { STATE._programmaticMove = false; }, 600);
+}
+
 function startGeolocation(forceCenter=false) {
   if (!navigator.geolocation) { toast('Geolocazione non supportata'); return; }
   document.getElementById('locateBtn').classList.add('active');
+  if (forceCenter) STATE._pendingRecenter = true;
   if (STATE.watchId == null) {
     STATE.watchId = navigator.geolocation.watchPosition(
       pos => {
         const lat = pos.coords.latitude, lng = pos.coords.longitude;
         const wasNull = !STATE.position;
+        const prev = STATE.position;
         STATE.position = { lat, lng, accuracy: pos.coords.accuracy };
         DBG.gpsCount++;
         DBG.gpsLast = { lat, lng, acc: pos.coords.accuracy, t: Date.now() };
         updateMeMarker();
-        if (wasNull || forceCenter) {
-          STATE._programmaticMove = true;
-          STATE.map.setView([lat, lng], Math.max(STATE.map.getZoom(), 12), { animate: true });
-          setTimeout(() => { STATE._programmaticMove = false; }, 600);
+
+        // Recenter solo al primo fix o quando l'utente ha premuto esplicitamente 📍.
+        // _pendingRecenter è un flag one-shot: consumato subito per non rientrare alla closure.
+        if (wasNull || STATE._pendingRecenter) {
+          STATE._pendingRecenter = false;
+          _doRecenter(lat, lng);
         }
-        refreshAllMarkers(); renderList();
+
+        // Throttle refreshAllMarkers: ridisegna solo se spostamento >100m oppure >10s dall'ultimo.
+        const movedKm = prev ? haversine(prev, STATE.position) : 1;
+        const now = Date.now();
+        if (movedKm > 0.1 || (now - STATE._lastNearRefreshTs) > 10000) {
+          STATE._lastNearRefreshTs = now;
+          refreshAllMarkers(); renderList();
+        }
+
         document.getElementById('firstTip').classList.add('hidden');
       },
       err => {
@@ -1028,10 +1048,8 @@ function startGeolocation(forceCenter=false) {
       { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
     );
   } else if (forceCenter && STATE.position) {
-    STATE._programmaticMove = true;
-    STATE.map.setView([STATE.position.lat, STATE.position.lng],
-                      Math.max(STATE.map.getZoom(), 13), { animate: true });
-    setTimeout(() => { STATE._programmaticMove = false; }, 600);
+    STATE._pendingRecenter = false;
+    _doRecenter(STATE.position.lat, STATE.position.lng);
   }
 }
 
