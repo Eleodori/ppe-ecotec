@@ -1238,9 +1238,11 @@ async function init() {
     [Math.max(...lats), Math.max(...lngs)]
   ], { padding: [40, 40] });
 
-  // Register service worker for PWA offline support
+  // Deregistra eventuali SW installati in precedenza (v1.x aveva SW attivo).
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    navigator.serviceWorker.getRegistrations().then(regs => {
+      regs.forEach(r => r.unregister());
+    });
   }
 }
 
