@@ -642,17 +642,16 @@ function initMap() {
     zoomControl: true,
     attributionControl: false,
     preferCanvas: true,
-    renderer: L.canvas({ padding: 0.5 }),
+    renderer: L.canvas(),
   }).setView([44.5, 10.5], 7);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', {
     maxZoom: 19,
     subdomains: 'abcd',
-    crossOrigin: true,
     attribution: '© <a href="https://www.openstreetmap.org/copyright">OSM</a> · CARTO',
   }).addTo(STATE.map);
 
   for (const p of PVS) {
-    const m = L.circleMarker([p.lat, p.lng], markerStyle(p));
+    const m = L.circleMarker([p.lat, p.lng], { ...markerStyle(p), bubblingMouseEvents: false });
     m._pv = p.pv;
     m.on('click', () => selectPv(p.pv));
     m.bindTooltip(String(p.pv), {
@@ -683,7 +682,6 @@ function markerStyle(p) {
     color: selected ? '#fafafa' : (near ? 'rgba(255,255,255,0.6)' : '#0a0a0a'),
     weight: selected ? 3 : (near ? 2 : 1.5),
     fillOpacity: 0.95,
-    bubblingMouseEvents: false,
   };
 }
 
