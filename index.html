@@ -624,7 +624,7 @@ const STATE = {
   darkMap: false,
   tileLayer: null,
   radiusKm: 10,
-  filters: { hideDone: true, nearOnly: false, region: 'all', query: '', tipoTask: 'all' },
+  filters: { hideDone: true, nearOnly: false, region: 'all', query: '', showInst: false, showSoprl: false },
   selectedPv: null,
   markers: {},
   meMarker: null,
@@ -871,7 +871,11 @@ function isPvVisibleInList(p) {
     if (!STATE.position) return false;
     if (haversine(STATE.position, p) > STATE.radiusKm) return false;
   }
-  if (f.tipoTask !== 'all' && p.tipoTask !== f.tipoTask) return false;
+  if (f.showInst || f.showSoprl) {
+    const typeOk = (f.showInst && (p.tipoTask === 'installazione' || p.tipoTask === 'altro')) ||
+                   (f.showSoprl && p.tipoTask === 'sopralluogo');
+    if (!typeOk) return false;
+  }
   if (f.query) {
     const q = f.query.toLowerCase();
     const hay = (p.pv+' '+p.comune+' '+p.prov+' '+p.regione+' '+p.indirizzo+' '+p.ragSoc+' '+p.name).toLowerCase();
@@ -936,8 +940,8 @@ function renderList() {
 function renderFilters() {
   document.getElementById('chipTodo').classList.toggle('on', STATE.filters.hideDone);
   document.getElementById('chipNear').classList.toggle('on', STATE.filters.nearOnly);
-  document.getElementById('chipInst').classList.toggle('on', STATE.filters.tipoTask === 'installazione');
-  document.getElementById('chipSoprl').classList.toggle('on', STATE.filters.tipoTask === 'sopralluogo');
+  document.getElementById('chipInst').classList.toggle('on', STATE.filters.showInst);
+  document.getElementById('chipSoprl').classList.toggle('on', STATE.filters.showSoprl);
   document.querySelectorAll('[data-region]').forEach(el => {
     el.classList.toggle('on', el.dataset.region === STATE.filters.region);
   });
@@ -1235,11 +1239,11 @@ async function init() {
     renderFilters(); refreshAllMarkers(); renderList(); saveSettings();
   });
   document.getElementById('chipInst').addEventListener('click', () => {
-    STATE.filters.tipoTask = STATE.filters.tipoTask === 'installazione' ? 'all' : 'installazione';
+    STATE.filters.showInst = !STATE.filters.showInst;
     renderFilters(); refreshAllMarkers(); renderList(); saveSettings();
   });
   document.getElementById('chipSoprl').addEventListener('click', () => {
-    STATE.filters.tipoTask = STATE.filters.tipoTask === 'sopralluogo' ? 'all' : 'sopralluogo';
+    STATE.filters.showSoprl = !STATE.filters.showSoprl;
     renderFilters(); refreshAllMarkers(); renderList(); saveSettings();
   });
   document.querySelectorAll('[data-region]').forEach(btn => {
