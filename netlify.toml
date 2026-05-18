@@ -1,18 +1,55 @@
 [build]
   publish = "."
 
+# Security headers per tutti i file (no override del Cache-Control qui:
+# regole più specifiche sotto gestiscono la cache per path).
 [[headers]]
   for = "/*"
   [headers.values]
     X-Frame-Options = "SAMEORIGIN"
     Referrer-Policy = "strict-origin-when-cross-origin"
 
+# Entry point HTML — sempre revalidate. Con l'ETag auto-generato da Netlify
+# le richieste successive ricevono 304 (no body) se il file non è cambiato:
+# costo minimo, ma il browser è sempre forzato a parlare col server.
+# Coprire sia "/" (path richiesto dall'utente) sia "/index.html".
 [[headers]]
-  for = "/sw.js"
+  for = "/"
   [headers.values]
-    Cache-Control = "no-cache"
+    Cache-Control = "public, max-age=0, must-revalidate"
 
 [[headers]]
   for = "/index.html"
   [headers.values]
-    Cache-Control = "no-cache"
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+# Dati e manifest — stesso trattamento dell'HTML: must-revalidate per
+# garantire che dopo un deploy il dataset aggiornato arrivi subito.
+[[headers]]
+  for = "/pv_data.json"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/manifest.json"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+# Icone/favicon — cambiano raramente; 1 giorno è un buon compromesso fra
+# riduzione richieste e propagazione di eventuali modifiche.
+[[headers]]
+  for = "/*.png"
+  [headers.values]
+    Cache-Control = "public, max-age=86400, must-revalidate"
+
+[[headers]]
+  for = "/*.svg"
+  [headers.values]
+    Cache-Control = "public, max-age=86400, must-revalidate"
+
+# Difesa: se per errore venisse rideployato un service worker vecchio,
+# vogliamo che il browser non lo cachi mai e lo possa disinstallare.
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-store"

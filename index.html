@@ -7,6 +7,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="PEE Field">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>PEE Field</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -621,8 +624,9 @@ const STATE = {
   _programmaticMove: false,
   _pendingRecenter: false,
   _lastNearRefreshTs: 0,
-  darkMap: false,
+  mapTheme: 'light',   // 'light' | 'dark' | 'terrain'
   tileLayer: null,
+  firstTipSeen: false,
   radiusKm: 10,
   filters: { hideDone: true, nearOnly: false, region: 'all', query: '', showInst: false, showSoprl: false },
   selectedPv: null,
@@ -672,7 +676,7 @@ function saveUserState() {
   }, 400);
 }
 function saveSettings() {
-  Store.set('settings', JSON.stringify({ radiusKm: STATE.radiusKm, filters: STATE.filters, darkMap: STATE.darkMap }));
+  Store.set('settings', JSON.stringify({ radiusKm: STATE.radiusKm, filters: STATE.filters, mapTheme: STATE.mapTheme }));
 }
 
 async function loadFromStorage() {
@@ -689,9 +693,19 @@ async function loadFromStorage() {
       const s = JSON.parse(set);
       if (s.radiusKm) STATE.radiusKm = s.radiusKm;
       if (s.filters) STATE.filters = { ...STATE.filters, ...s.filters };
-      if (s.darkMap != null) STATE.darkMap = s.darkMap;
+      if (s.mapTheme && ['light','dark','terrain'].includes(s.mapTheme)) STATE.mapTheme = s.mapTheme;
+      else if (s.darkMap === true) STATE.mapTheme = 'dark';  // migrate legacy bool
     } catch(e) {}
   }
+  STATE.firstTipSeen = !!(await Store.get('firstTipSeen'));
+}
+
+function dismissFirstTip() {
+  const el = document.getElementById('firstTip');
+  if (el) el.classList.add('hidden');
+  if (STATE.firstTipSeen) return;
+  STATE.firstTipSeen = true;
+  Store.set('firstTipSeen', '1');
 }
 
 function statusOf(pv) {
@@ -722,6 +736,27 @@ function toast(msg, ms=1800) {
   toast._t = setTimeout(() => el.classList.remove('show'), ms);
 }
 
+const MAP_THEMES = {
+  light: {
+    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+    bg: '#e8e8e8', maxZoom: 19, subdomains: 'abcd',
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OSM</a> · CARTO',
+    next: 'dark', btnLabel: '🌙 Mappa scura',
+  },
+  dark: {
+    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+    bg: '#1a1a1a', maxZoom: 19, subdomains: 'abcd',
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OSM</a> · CARTO',
+    next: 'terrain', btnLabel: '⛰ Mappa rilievi',
+  },
+  terrain: {
+    url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+    bg: '#dde2c6', maxZoom: 17, subdomains: 'abc',
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OSM</a> · <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)',
+    next: 'light', btnLabel: '☀ Mappa chiara',
+  },
+};
+
 function initMap() {
   STATE.map = L.map('map', {
     zoomControl: true,
@@ -730,13 +765,11 @@ function initMap() {
     renderer: L.canvas(),
     tap: false, // user-scalable=no in viewport handles iOS fast-tap natively; disabling Tap prevents double-click on iOS Safari
   }).setView([44.5, 10.5], 7);
-  document.documentElement.style.setProperty('--map-bg', STATE.darkMap ? '#1a1a1a' : '#e8e8e8');
-  STATE.tileLayer = L.tileLayer(
-    STATE.darkMap
-      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
-      : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-    { maxZoom: 19, subdomains: 'abcd', attribution: '© <a href="https://www.openstreetmap.org/copyright">OSM</a> · CARTO' }
-  ).addTo(STATE.map);
+  const theme = MAP_THEMES[STATE.mapTheme] || MAP_THEMES.light;
+  document.documentElement.style.setProperty('--map-bg', theme.bg);
+  STATE.tileLayer = L.tileLayer(theme.url, {
+    maxZoom: theme.maxZoom, subdomains: theme.subdomains, attribution: theme.attribution,
+  }).addTo(STATE.map);
 
   let _lastMarkerClickMs = 0;
   for (const p of PVS) {
@@ -761,6 +794,7 @@ function initMap() {
     STATE.map.on(ev, () => {
       if (STATE._programmaticMove) return;
       STATE.follow = false;
+      dismissFirstTip();
     })
   );
 }
@@ -769,7 +803,7 @@ function markerStyle(p) {
   const status = statusOf(p);
   const selected = STATE.selectedPv === p.pv;
   const near = STATE.position && haversine(STATE.position, p) <= STATE.radiusKm;
-  const dark = STATE.darkMap;
+  const dark = STATE.mapTheme === 'dark';
   let fillColor = p.tipoTask === 'sopralluogo' ? '#8b5cf6' : '#f59e0b';
   if (status === 'done') fillColor = '#22c55e';
   if (status === 'problem') fillColor = '#ef4444';
@@ -784,18 +818,20 @@ function markerStyle(p) {
   };
 }
 
-function setMapTheme(dark) {
-  STATE.darkMap = dark;
-  STATE.tileLayer.setUrl(
-    dark
-      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
-      : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'
-  );
-  document.documentElement.style.setProperty('--map-bg', dark ? '#1a1a1a' : '#e8e8e8');
+function setMapTheme(themeName) {
+  const t = MAP_THEMES[themeName] || MAP_THEMES.light;
+  STATE.mapTheme = themeName;
+  STATE.tileLayer.setUrl(t.url);
+  STATE.tileLayer.options.maxZoom = t.maxZoom;
+  STATE.tileLayer.options.subdomains = t.subdomains;
+  STATE.tileLayer.options.attribution = t.attribution;
+  // If current zoom exceeds the new theme's maxZoom, clamp it.
+  if (STATE.map.getZoom() > t.maxZoom) STATE.map.setZoom(t.maxZoom);
+  document.documentElement.style.setProperty('--map-bg', t.bg);
   refreshAllMarkers();
   saveSettings();
   const btn = document.getElementById('btnToggleTheme');
-  if (btn) btn.textContent = dark ? '☀ Mappa chiara' : '🌙 Mappa scura';
+  if (btn) btn.textContent = t.btnLabel;
 }
 
 function refreshMarker(pvId) {
@@ -953,10 +989,23 @@ function selectPv(pvId, opts = {}) {
   if (!p) return;
   refreshAllMarkers();
   renderList();
-  document.getElementById('firstTip').classList.add('hidden');
+  dismissFirstTip();
   if (!opts.skipPan) {
-    STATE.map.panTo([p.lat, p.lng], { animate: true });
-    if (STATE.map.getZoom() < 13) STATE.map.setZoom(14);
+    // setView atomico (pan + zoom in un'unica animazione, evita "zoom a cazzo"
+    // dovuto a panTo+setZoom concorrenti).
+    const maxZ = (STATE.tileLayer && STATE.tileLayer.options.maxZoom) || 19;
+    const targetZoom = Math.min(maxZ, Math.max(STATE.map.getZoom(), 14));
+    let target = L.latLng(p.lat, p.lng);
+    // Su mobile la detail-sheet copre la metà inferiore: trasla il target
+    // verso l'alto in pixel-space così il pin resta visibile sopra lo sheet.
+    if (window.innerWidth < 900) {
+      const pt = STATE.map.project(target, targetZoom);
+      pt.y += window.innerHeight * 0.22; // sposta il centro verso il basso → pin verso l'alto
+      target = STATE.map.unproject(pt, targetZoom);
+    }
+    STATE._programmaticMove = true;
+    STATE.map.setView(target, targetZoom, { animate: true });
+    setTimeout(() => { STATE._programmaticMove = false; }, 700);
   }
   renderDetail(p);
   document.getElementById('detailSheet').classList.add('open');
@@ -1035,28 +1084,43 @@ function renderDetail(p) {
   }
 }
 
-window.markDone = function(pvId) {
+// Wrappa le azioni: se un onclick inline lancia, l'eccezione finisce in
+// window.onerror (qui passata esplicitamente a __bootError) così la causa
+// del crash mobile diventa visibile invece di restare silente.
+function _safeAction(name, fn) {
+  return function(pvId) {
+    try {
+      const p = PV_BY_ID[pvId];
+      if (!p) throw new Error(name + ': PV ' + pvId + ' non trovato');
+      return fn(pvId, p);
+    } catch(err) {
+      window.__bootError(name + ' (PV ' + pvId + ') → ' + (err && err.message) + '\n' + (err && err.stack || ''));
+      throw err;
+    }
+  };
+}
+window.markDone = _safeAction('markDone', (pvId, p) => {
   const cur = STATE.userState[pvId] || {};
   STATE.userState[pvId] = { ...cur, fatto: true, problema: false, fromSource: false, updatedAt: Date.now() };
-  saveUserState(); refreshMarker(pvId); renderCounters(); renderList(); renderDetail(PV_BY_ID[pvId]);
+  saveUserState(); refreshMarker(pvId); renderCounters(); renderList(); renderDetail(p);
   toast(`PV ${pvId} fatto ✓`);
-};
-window.markProblem = function(pvId) {
+});
+window.markProblem = _safeAction('markProblem', (pvId, p) => {
   const cur = STATE.userState[pvId] || {};
   STATE.userState[pvId] = { ...cur, fatto: false, problema: true, fromSource: false, updatedAt: Date.now() };
-  saveUserState(); refreshMarker(pvId); renderCounters(); renderList(); renderDetail(PV_BY_ID[pvId]);
+  saveUserState(); refreshMarker(pvId); renderCounters(); renderList(); renderDetail(p);
   toast(`PV ${pvId} problema ⚠`);
-};
-window.undoDone = function(pvId) {
+});
+window.undoDone = _safeAction('undoDone', (pvId, p) => {
   const cur = STATE.userState[pvId] || {};
   STATE.userState[pvId] = { ...cur, fatto: false, fromSource: false, updatedAt: Date.now() };
-  saveUserState(); refreshMarker(pvId); renderCounters(); renderList(); renderDetail(PV_BY_ID[pvId]);
-};
-window.clearProblem = function(pvId) {
+  saveUserState(); refreshMarker(pvId); renderCounters(); renderList(); renderDetail(p);
+});
+window.clearProblem = _safeAction('clearProblem', (pvId, p) => {
   const cur = STATE.userState[pvId] || {};
   STATE.userState[pvId] = { ...cur, problema: false, fromSource: false, updatedAt: Date.now() };
-  saveUserState(); refreshMarker(pvId); renderCounters(); renderList(); renderDetail(PV_BY_ID[pvId]);
-};
+  saveUserState(); refreshMarker(pvId); renderCounters(); renderList(); renderDetail(p);
+});
 
 function _doRecenter(lat, lng) {
   STATE._programmaticMove = true;
@@ -1102,7 +1166,7 @@ function startGeolocation(forceCenter=false) {
           refreshAllMarkers(); renderList();
         }
 
-        document.getElementById('firstTip').classList.add('hidden');
+        dismissFirstTip();
       },
       err => {
         document.getElementById('locateBtn').classList.remove('active');
@@ -1260,8 +1324,12 @@ async function init() {
 
   document.getElementById('detailClose').addEventListener('click', closeDetail);
 
-  document.getElementById('btnToggleTheme').textContent = STATE.darkMap ? '☀ Mappa chiara' : '🌙 Mappa scura';
-  document.getElementById('btnToggleTheme').addEventListener('click', () => { setMapTheme(!STATE.darkMap); menuPop.classList.remove('open'); });
+  document.getElementById('btnToggleTheme').textContent = (MAP_THEMES[STATE.mapTheme] || MAP_THEMES.light).btnLabel;
+  document.getElementById('btnToggleTheme').addEventListener('click', () => {
+    const cur = MAP_THEMES[STATE.mapTheme] || MAP_THEMES.light;
+    setMapTheme(cur.next);
+    menuPop.classList.remove('open');
+  });
   document.getElementById('btnExportJson').addEventListener('click', () => { exportJson(); menuPop.classList.remove('open'); });
   document.getElementById('btnExportCsv').addEventListener('click', () => { exportCsv(); menuPop.classList.remove('open'); });
   document.getElementById('btnImportJson').addEventListener('click', () => { document.getElementById('importFile').click(); menuPop.classList.remove('open'); });
@@ -1290,6 +1358,9 @@ async function init() {
   document.getElementById('app').style.display = 'grid';
   STATE.map.invalidateSize({ animate: false });
 
+  // Tip "Tocca un pin": una volta sola per device (flag in localStorage).
+  if (STATE.firstTipSeen) document.getElementById('firstTip').classList.add('hidden');
+
   const lats = PVS.map(p => p.lat), lngs = PVS.map(p => p.lng);
   STATE.map.fitBounds([
     [Math.min(...lats), Math.min(...lngs)],
@@ -1305,7 +1376,10 @@ async function init() {
 }
 
 async function loadDataset() {
-  const resp = await fetch('pv_data.json', { cache: 'no-cache' });
+  // cache: 'reload' forza la richiesta diretta al server bypassando il cache HTTP del browser
+  // (problema mobile: iOS Safari serve la versione cached per giorni dopo un deploy).
+  // I header netlify.toml impostano comunque Cache-Control: no-cache come difesa lato server.
+  const resp = await fetch('pv_data.json', { cache: 'reload' });
   if (!resp.ok) throw new Error('Dataset non caricato: ' + resp.status);
   return await resp.json();
 }
