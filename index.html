@@ -604,6 +604,22 @@ aside {
 .qs-val.sospeso { color: var(--sospeso); }
 .qs-val.sm { font-size: 17px; }
 .qs-lbl { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+/* === Block 3: Clusters === */
+.cluster-loading { font-size: 12px; color: var(--text-muted); padding: 16px 0; text-align: center; }
+.cluster-empty { font-size: 12px; color: var(--text-muted); padding: 16px 0; }
+.cluster-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; }
+.cluster-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+.cluster-idx { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); width: 20px; flex-shrink: 0; }
+.cluster-region { flex: 1; font-size: 12px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cluster-ratio { font-family: var(--font-mono); font-size: 11px; color: var(--done); font-weight: 700; flex-shrink: 0; }
+.cluster-card-stats { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); margin-bottom: 10px; flex-wrap: wrap; }
+.cluster-sep { color: var(--border); }
+.cluster-approx { font-size: 10px; color: var(--text-muted); }
+.cluster-show-btn { width: 100%; padding: 8px 12px; border-radius: 7px; font-size: 12px; font-weight: 600; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-dim); transition: all .15s; text-align: center; }
+.cluster-show-btn:hover { background: var(--me); color: white; border-color: var(--me); }
+.cluster-noise { font-size: 11px; color: var(--text-muted); padding: 4px 2px; margin-top: 4px; }
+.chip.cluster-chip { background: var(--me); color: white; border-color: var(--me); }
 </style>
 </head>
 <body>
@@ -664,6 +680,7 @@ aside {
           <input class="search-input" type="search" id="searchInput" placeholder="Cerca per PV, comune, regione…" inputmode="search">
         </div>
         <div class="filter-bar">
+          <button class="chip cluster-chip" id="chipCluster" style="display:none">Cluster ×</button>
           <button class="chip near-chip" id="chipNear">Vicino a me</button>
           <button class="chip todo-chip on" id="chipTodo">Solo da fare</button>
           <button class="chip inst-chip" id="chipInst">Installazioni</button>
@@ -713,6 +730,11 @@ aside {
     <div class="dash-section">
       <div class="dash-title">Avanzamento per regione</div>
       <div id="dashRegionProgress"></div>
+    </div>
+
+    <div class="dash-section">
+      <div class="dash-title">Ottimizzazione percorso</div>
+      <div id="dashClusters"><div class="cluster-loading">Calcolo cluster in corso…</div></div>
     </div>
 
     <div class="dash-section">
@@ -847,6 +869,7 @@ function renderDashboard() {
   renderRegionProgress();
   renderActivityHistory();
   renderQuickStats();
+  renderClusters(); // async, updates dashClusters when ready
 }
 
 function renderRegionProgress() {
@@ -949,6 +972,180 @@ function renderQuickStats() {
   </div>`;
 }
 
+// === Geographic clustering (Block 3) ===
+
+function dbscan(pvs, epsKm, minPts) {
+  const n = pvs.length;
+  const UNVISITED = -2, NOISE = -1;
+  const labels = new Array(n).fill(UNVISITED);
+  let clusterId = 0;
+  const regionQuery = i => {
+    const nb = [];
+    for (let j = 0; j < n; j++) {
+      if (j !== i && haversine(pvs[i], pvs[j]) <= epsKm) nb.push(j);
+    }
+    return nb;
+  };
+  for (let i = 0; i < n; i++) {
+    if (labels[i] !== UNVISITED) continue;
+    const nb = regionQuery(i);
+    if (nb.length < minPts) { labels[i] = NOISE; continue; }
+    labels[i] = clusterId;
+    const queue = [...nb];
+    while (queue.length > 0) {
+      const q = queue.shift();
+      if (labels[q] === NOISE) labels[q] = clusterId;
+      if (labels[q] !== UNVISITED) continue;
+      labels[q] = clusterId;
+      const qnb = regionQuery(q);
+      if (qnb.length >= minPts) queue.push(...qnb);
+    }
+    clusterId++;
+  }
+  const clusters = Array.from({ length: clusterId }, () => []);
+  const noise = [];
+  for (let i = 0; i < n; i++) {
+    if (labels[i] >= 0) clusters[labels[i]].push(pvs[i]);
+    else noise.push(pvs[i]);
+  }
+  return { clusters, noise };
+}
+
+function greedyTSP(distMeters) {
+  const n = distMeters.length;
+  if (n <= 1) return 0;
+  const visited = new Set([0]);
+  let cur = 0, total = 0;
+  while (visited.size < n) {
+    let best = -1, bestD = Infinity;
+    for (let j = 0; j < n; j++) {
+      if (!visited.has(j) && distMeters[cur][j] != null && distMeters[cur][j] < bestD) {
+        best = j; bestD = distMeters[cur][j];
+      }
+    }
+    if (best === -1) break;
+    visited.add(best);
+    total += bestD;
+    cur = best;
+  }
+  return total / 1000;
+}
+
+function buildHaversineMatrix(pvs) {
+  return pvs.map(a => pvs.map(b => haversine(a, b) * 1000));
+}
+
+async function callDistanceMatrix(pvs) {
+  if (pvs.length * pvs.length > 3500) return null;
+  try {
+    const coords = pvs.map(p => ({ lat: p.lat, lng: p.lng }));
+    const resp = await fetch('/.netlify/functions/distance-matrix', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sources: coords, destinations: coords }),
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    return data.distances || null;
+  } catch { return null; }
+}
+
+function clusterPotential(pvs) {
+  let income = 0;
+  const soprT = STATE.soprTariff || 0;
+  for (const p of pvs) {
+    const e = effectiveFlags(p);
+    const instTariff = REGION_TARIFF[p.regione] || 60;
+    if (!e.instFatta && e.instRichiesta) income += instTariff;
+    if (soprT > 0 && !e.soprFatto && e.soprRichiesto) income += soprT;
+  }
+  return income;
+}
+
+async function renderClusters() {
+  const el = document.getElementById('dashClusters');
+  el.innerHTML = '<div class="cluster-loading">Calcolo cluster…</div>';
+
+  const activePvs = PVS.filter(p => {
+    const e = effectiveFlags(p);
+    if (e.archivio || e.sospeso) return false;
+    return (e.instRichiesta && !e.instFatta) || (e.soprRichiesto && !e.soprFatto);
+  });
+
+  if (activePvs.length === 0) {
+    el.innerHTML = '<div class="cluster-empty">Nessun PV attivo da ottimizzare.</div>';
+    return;
+  }
+
+  const { clusters, noise } = dbscan(activePvs, 25, 2);
+  const sortedClusters = clusters.filter(c => c.length >= 2).sort((a, b) => b.length - a.length);
+
+  // Fetch ORS matrices in parallel, fall back to haversine per cluster
+  const matrixPromises = sortedClusters.map(c => callDistanceMatrix(c));
+  const matrices = await Promise.all(matrixPromises);
+
+  const results = sortedClusters.map((cluster, i) => {
+    const distMatrix = matrices[i] || buildHaversineMatrix(cluster);
+    const orsUsed = !!matrices[i];
+    const kmEst = greedyTSP(distMatrix);
+    const income = clusterPotential(cluster);
+    const eurPerKm = kmEst > 0.5 ? income / kmEst : income;
+    return { cluster, kmEst, income, eurPerKm, orsUsed };
+  }).sort((a, b) => b.eurPerKm - a.eurPerKm);
+
+  if (results.length === 0) {
+    el.innerHTML = `<div class="cluster-empty">Nessun cluster trovato (${noise.length} PV isolati).</div>`;
+    return;
+  }
+
+  const cards = results.map((r, i) => {
+    const pvIds = r.cluster.map(p => p.pv);
+    const regions = [...new Set(r.cluster.map(p => REGION_SHORT[p.regione] || p.regione))].join(', ');
+    const kmStr = r.kmEst < 1 ? '<1 km' : Math.round(r.kmEst) + ' km';
+    const incomeStr = r.income > 0 ? '€' + r.income.toLocaleString('it-IT') : '';
+    const ratioStr = r.income > 0 && r.kmEst > 0.5 ? '€' + r.eurPerKm.toFixed(1) + '/km' : '';
+    const approx = r.orsUsed ? '' : '<span class="cluster-approx"> ~stima</span>';
+    return `<div class="cluster-card">
+      <div class="cluster-card-head">
+        <span class="cluster-idx">#${i + 1}</span>
+        <span class="cluster-region">${regions}</span>
+        <span class="cluster-ratio">${ratioStr}</span>
+      </div>
+      <div class="cluster-card-stats">
+        <span>${r.cluster.length} PV</span>
+        ${incomeStr ? `<span class="cluster-sep">·</span><span>${incomeStr}</span>` : ''}
+        <span class="cluster-sep">·</span><span>${kmStr}${approx}</span>
+      </div>
+      <button class="cluster-show-btn" onclick="applyClusterFilter(${JSON.stringify(pvIds)})">Mostra sulla mappa →</button>
+    </div>`;
+  });
+
+  el.innerHTML = cards.join('');
+  if (noise.length > 0) el.innerHTML += `<div class="cluster-noise">+ ${noise.length} PV isolati non raggruppati</div>`;
+}
+
+function applyClusterFilter(pvIds) {
+  STATE.filters.pvIds = pvIds;
+  switchView('mappa');
+  const chip = document.getElementById('chipCluster');
+  chip.style.display = 'flex';
+  chip.textContent = `Cluster (${pvIds.length}) ×`;
+  refreshAllMarkers();
+  renderCounters();
+  renderRegionStats();
+  renderList();
+}
+window.applyClusterFilter = applyClusterFilter;
+
+function clearClusterFilter() {
+  STATE.filters.pvIds = null;
+  document.getElementById('chipCluster').style.display = 'none';
+  refreshAllMarkers();
+  renderCounters();
+  renderRegionStats();
+  renderList();
+}
+
 function renderEconomicBlock() {
   const soprTariff = STATE.soprTariff || 0;
   let incassato = 0, potenziale = 0;
@@ -982,7 +1179,7 @@ const STATE = {
   tileLayer: null,
   firstTipSeen: false,
   radiusKm: 10,
-  filters: { hideDone: true, nearOnly: false, regions: [], showArchive: false, query: '', showInst: false, showSoprl: false },
+  filters: { hideDone: true, nearOnly: false, regions: [], showArchive: false, query: '', showInst: false, showSoprl: false, pvIds: null },
   view: 'mappa',
   soprTariff: 0,
   periodDays: 30,
@@ -1033,7 +1230,8 @@ function saveUserState() {
   }, 400);
 }
 function saveSettings() {
-  Store.set('settings', JSON.stringify({ radiusKm: STATE.radiusKm, filters: STATE.filters, mapTheme: STATE.mapTheme, soprTariff: STATE.soprTariff }));
+  const { pvIds, ...filtersToSave } = STATE.filters;
+  Store.set('settings', JSON.stringify({ radiusKm: STATE.radiusKm, filters: filtersToSave, mapTheme: STATE.mapTheme, soprTariff: STATE.soprTariff }));
 }
 
 // Converte vecchio userState {fatto, problema, fromSource} → nuovo {sopralluogo_fatto_ts, installazione_fatta_ts}
@@ -1327,6 +1525,7 @@ function dbgInit() {
 
 function isPvVisibleInList(p) {
   const f = STATE.filters;
+  if (f.pvIds && !f.pvIds.includes(p.pv)) return false;
   const e = effectiveFlags(p);
   if (e.archivio && !f.showArchive) return false;
   if (f.hideDone) {
@@ -1763,6 +1962,7 @@ async function init() {
 
   document.getElementById('tabMappa').addEventListener('click', () => switchView('mappa'));
   document.getElementById('tabDash').addEventListener('click', () => switchView('dashboard'));
+  document.getElementById('chipCluster').addEventListener('click', clearClusterFilter);
 
   document.getElementById('soprTariffInput').value = STATE.soprTariff || 0;
   document.getElementById('soprTariffInput').addEventListener('input', e => {
