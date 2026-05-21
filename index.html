@@ -510,6 +510,50 @@ aside {
 .dbg-user { color: #86efac; }
 .dbg-gps  { color: #93c5fd; }
 .dbg-dim  { color: #71717a; }
+
+/* === View tabs (header) === */
+.view-tabs { display: flex; gap: 2px; background: var(--surface-2); border-radius: 8px; padding: 3px; margin-left: 6px; }
+.view-tab { padding: 5px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; color: var(--text-muted); transition: all .15s; white-space: nowrap; }
+.view-tab.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.5); }
+
+/* === Dashboard === */
+#dashboardView {
+  grid-row: 2;
+  display: none; flex-direction: column;
+  overflow-y: auto; overflow-x: hidden;
+  background: var(--bg);
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: calc(var(--safe-bot) + 20px);
+}
+.dash-section { padding: 16px 16px 12px; }
+.dash-title { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--text-muted); margin-bottom: 10px; font-weight: 700; }
+.econ-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
+@media (max-width: 480px) { .econ-cards { grid-template-columns: 1fr; } }
+.econ-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+.econ-card.done    { border-color: rgba(34,197,94,.3); }
+.econ-card.pending { border-color: rgba(245,158,11,.3); }
+.econ-card.total   { border-color: rgba(59,130,246,.3); }
+.econ-amount { font-family: var(--font-mono); font-size: 22px; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; }
+.econ-card.done    .econ-amount { color: var(--done); }
+.econ-card.pending .econ-amount { color: var(--todo); }
+.econ-card.total   .econ-amount { color: var(--me); }
+.econ-lbl { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+.econ-tariff-row { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 11px 14px; }
+.econ-tariff-lbl { font-size: 12px; color: var(--text-dim); flex: 1; }
+.econ-tariff-wrap { display: flex; align-items: center; gap: 4px; }
+.econ-currency { font-size: 13px; color: var(--text-muted); }
+.econ-tariff-input {
+  width: 64px; text-align: right;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 5px 8px;
+  color: var(--text); font-family: var(--font-mono); font-size: 13px;
+  outline: none; -moz-appearance: textfield;
+}
+.econ-tariff-input::-webkit-outer-spin-button,
+.econ-tariff-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.econ-tariff-input:focus { border-color: var(--text-muted); }
+.econ-tariff-unit { font-size: 11px; color: var(--text-muted); }
+.econ-info { font-size: 11px; color: var(--text-muted); margin-top: 8px; line-height: 1.5; }
 </style>
 </head>
 <body>
@@ -531,6 +575,10 @@ aside {
         <div class="brand-sub mono">Marit · Iplanet</div>
       </div>
     </div>
+    <nav class="view-tabs">
+      <button class="view-tab active" id="tabMappa">Mappa</button>
+      <button class="view-tab" id="tabDash">Dash</button>
+    </nav>
     <div class="counters">
       <div class="counter-group sopr">
         <span class="cg-lbl">S</span>
@@ -583,6 +631,35 @@ aside {
       </div>
     </aside>
   </main>
+
+  <section id="dashboardView">
+    <div class="dash-section">
+      <div class="dash-title">Riepilogo economico</div>
+      <div class="econ-cards">
+        <div class="econ-card done">
+          <div class="econ-amount" id="econIncassato">€–</div>
+          <div class="econ-lbl">Già incassato</div>
+        </div>
+        <div class="econ-card pending">
+          <div class="econ-amount" id="econPotenziale">€–</div>
+          <div class="econ-lbl">Potenziale</div>
+        </div>
+        <div class="econ-card total">
+          <div class="econ-amount" id="econTotale">€–</div>
+          <div class="econ-lbl">Totale stimato</div>
+        </div>
+      </div>
+      <div class="econ-tariff-row">
+        <span class="econ-tariff-lbl">Tariffa sopralluogo</span>
+        <div class="econ-tariff-wrap">
+          <span class="econ-currency">€</span>
+          <input type="number" id="soprTariffInput" class="econ-tariff-input" min="0" step="5" value="0" placeholder="0">
+          <span class="econ-tariff-unit">/ visita</span>
+        </div>
+      </div>
+      <div class="econ-info">Installazione: €70 Lomb/Piem/VdA · €60 altre regioni. Archivio incluso. Sospesi esclusi.</div>
+    </div>
+  </section>
 
   <div class="menu-pop" id="menuPop">
     <div class="menu-section">Posizione</div>
@@ -676,6 +753,47 @@ const REGION_SHORT = {
   'VALLE DAOSTA': "V.D'AOSTA",
 };
 
+const REGION_TARIFF = {
+  'LOMBARDIA': 70, 'PIEMONTE': 70, 'VALLE DAOSTA': 70,
+  'EMILIA ROMAGNA': 60, 'TOSCANA': 60, 'MARCHE': 60,
+};
+
+function switchView(view) {
+  STATE.view = view;
+  const isMap = view === 'mappa';
+  document.querySelector('main').style.display = isMap ? '' : 'none';
+  const dash = document.getElementById('dashboardView');
+  dash.style.display = isMap ? 'none' : 'flex';
+  document.getElementById('tabMappa').classList.toggle('active', isMap);
+  document.getElementById('tabDash').classList.toggle('active', !isMap);
+  document.getElementById('locateBtn').style.display = isMap ? '' : 'none';
+  if (!isMap) renderDashboard();
+}
+
+function renderDashboard() {
+  renderEconomicBlock();
+}
+
+function renderEconomicBlock() {
+  const soprTariff = STATE.soprTariff || 0;
+  let incassato = 0, potenziale = 0;
+  for (const p of PVS) {
+    const e = effectiveFlags(p);
+    if (e.sospeso) continue;
+    const instTariff = REGION_TARIFF[p.regione] || 60;
+    if (e.instFatta) incassato += instTariff;
+    else if (e.instRichiesta) potenziale += instTariff;
+    if (soprTariff > 0) {
+      if (e.soprFatto) incassato += soprTariff;
+      else if (e.soprRichiesto && !e.archivio) potenziale += soprTariff;
+    }
+  }
+  const fmtEur = n => '€ ' + n.toLocaleString('it-IT');
+  document.getElementById('econIncassato').textContent = fmtEur(incassato);
+  document.getElementById('econPotenziale').textContent = fmtEur(potenziale);
+  document.getElementById('econTotale').textContent = fmtEur(incassato + potenziale);
+}
+
 // === STATE ===
 const STATE = {
   userState: {},
@@ -690,6 +808,8 @@ const STATE = {
   firstTipSeen: false,
   radiusKm: 10,
   filters: { hideDone: true, nearOnly: false, regions: [], showArchive: false, query: '', showInst: false, showSoprl: false },
+  view: 'mappa',
+  soprTariff: 0,
   selectedPv: null,
   markers: {},
   meMarker: null,
@@ -737,7 +857,7 @@ function saveUserState() {
   }, 400);
 }
 function saveSettings() {
-  Store.set('settings', JSON.stringify({ radiusKm: STATE.radiusKm, filters: STATE.filters, mapTheme: STATE.mapTheme }));
+  Store.set('settings', JSON.stringify({ radiusKm: STATE.radiusKm, filters: STATE.filters, mapTheme: STATE.mapTheme, soprTariff: STATE.soprTariff }));
 }
 
 // Converte vecchio userState {fatto, problema, fromSource} → nuovo {sopralluogo_fatto_ts, installazione_fatta_ts}
@@ -787,6 +907,7 @@ async function loadFromStorage() {
       }
       if (s.mapTheme && ['light','dark','terrain'].includes(s.mapTheme)) STATE.mapTheme = s.mapTheme;
       else if (s.darkMap === true) STATE.mapTheme = 'dark';
+      if (s.soprTariff != null) STATE.soprTariff = parseFloat(s.soprTariff) || 0;
     } catch(e) {}
   }
 
@@ -1463,6 +1584,16 @@ async function init() {
   renderFilters();
   renderList();
   renderRegionStats();
+
+  document.getElementById('tabMappa').addEventListener('click', () => switchView('mappa'));
+  document.getElementById('tabDash').addEventListener('click', () => switchView('dashboard'));
+
+  document.getElementById('soprTariffInput').value = STATE.soprTariff || 0;
+  document.getElementById('soprTariffInput').addEventListener('input', e => {
+    STATE.soprTariff = Math.max(0, parseFloat(e.target.value) || 0);
+    renderEconomicBlock();
+    saveSettings();
+  });
 
   document.getElementById('locateBtn').addEventListener('click', () => startGeolocation(true));
 
