@@ -773,7 +773,7 @@ aside {
     <button id="btnImportJson">⬆ Importa backup</button>
     <hr>
     <button id="btnToggleArchive">📦 Mostra archivio storico<span class="menu-check" id="archiveCheck">○</span></button>
-    <button id="btnToggleTheme">🌙 Mappa scura</button>
+    <button id="btnToggleTheme">🌙 Scura</button>
     <button id="btnAbout">ⓘ Info</button>
     <hr>
     <div class="menu-section">Legenda pin</div>
@@ -1279,7 +1279,8 @@ async function loadFromStorage() {
         if (!Array.isArray(loaded.regions)) loaded.regions = [...(window.ALL_REGIONS || [])];
         STATE.filters = { ...STATE.filters, ...loaded };
       }
-      if (s.mapTheme && ['light','dark','terrain'].includes(s.mapTheme)) STATE.mapTheme = s.mapTheme;
+      if (s.mapTheme === 'terrain') STATE.mapTheme = 'topo'; // migrate old key
+      else if (s.mapTheme && s.mapTheme in MAP_THEMES) STATE.mapTheme = s.mapTheme;
       else if (s.darkMap === true) STATE.mapTheme = 'dark';
       if (s.soprTariff != null) STATE.soprTariff = parseFloat(s.soprTariff) || 0;
     } catch(e) {}
@@ -1359,19 +1360,25 @@ const MAP_THEMES = {
     url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
     bg: '#e8e8e8', maxZoom: 19, subdomains: 'abcd',
     attribution: '© <a href="https://www.openstreetmap.org/copyright">OSM</a> · CARTO',
-    next: 'dark', btnLabel: '🌙 Mappa scura',
+    next: 'dark', btnLabel: '🌙 Scura',
   },
   dark: {
     url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
     bg: '#1a1a1a', maxZoom: 19, subdomains: 'abcd',
     attribution: '© <a href="https://www.openstreetmap.org/copyright">OSM</a> · CARTO',
-    next: 'terrain', btnLabel: '⛰ Mappa rilievi',
+    next: 'topo', btnLabel: '⛰ Rilievi',
   },
-  terrain: {
-    url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
-    bg: '#dde2c6', maxZoom: 17, subdomains: 'abc',
-    attribution: '© <a href="https://www.openstreetmap.org/copyright">OSM</a> · <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)',
-    next: 'light', btnLabel: '☀ Mappa chiara',
+  topo: {
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+    bg: '#dce8d4', maxZoom: 19, subdomains: '',
+    attribution: 'Tiles © <a href="https://www.esri.com">ESRI</a>',
+    next: 'satellite', btnLabel: '🛰 Satellite',
+  },
+  satellite: {
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    bg: '#1a1a1a', maxZoom: 19, subdomains: '',
+    attribution: 'Tiles © <a href="https://www.esri.com">ESRI</a>',
+    next: 'light', btnLabel: '☀ Chiara',
   },
 };
 
@@ -1430,16 +1437,18 @@ function markerStyle(p) {
   const status = statusOf(p);
   const selected = STATE.selectedPv === p.pv;
   const near = STATE.position && haversine(STATE.position, p) <= STATE.radiusKm;
-  const dark = STATE.mapTheme === 'dark';
+  const dark = STATE.mapTheme === 'dark' || STATE.mapTheme === 'satellite';
+  const satellite = STATE.mapTheme === 'satellite';
   const fillColor = PIN_COLOR[status] || '#f59e0b';
   const isArchive = status === 'archive';
   return {
     radius: selected ? 11 : (near ? 9 : 7),
     fillColor,
-    color: selected ? (dark ? '#fafafa' : '#111827')
-         : near    ? (dark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.45)')
-         :            (dark ? '#0a0a0a' : '#374151'),
-    weight: selected ? 3 : (near ? 2 : 1.5),
+    color: selected  ? '#ffffff'
+         : satellite ? 'rgba(255,255,255,0.8)'
+         : near      ? (dark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.45)')
+         :               (dark ? '#0a0a0a' : '#374151'),
+    weight: selected ? 3 : (satellite ? 2 : (near ? 2 : 1.5)),
     fillOpacity: isArchive ? 0.45 : 0.95,
   };
 }
