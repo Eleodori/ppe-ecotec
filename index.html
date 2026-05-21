@@ -554,6 +554,56 @@ aside {
 .econ-tariff-input:focus { border-color: var(--text-muted); }
 .econ-tariff-unit { font-size: 11px; color: var(--text-muted); }
 .econ-info { font-size: 11px; color: var(--text-muted); margin-top: 8px; line-height: 1.5; }
+
+/* === Block 2: Region progress === */
+.reg-progress-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; margin-bottom: 6px;
+  cursor: pointer; transition: background .15s;
+}
+.reg-progress-row:hover { background: var(--surface-2); }
+.reg-progress-row:active { transform: scale(.99); }
+.reg-progress-name { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); width: 80px; flex-shrink: 0; }
+.reg-progress-bars { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.rpb-row { display: flex; align-items: center; gap: 6px; }
+.rpb-lbl { font-size: 9px; font-weight: 700; width: 10px; flex-shrink: 0; text-align: center; }
+.rpb-lbl.inst { color: var(--todo); }
+.rpb-lbl.sopr { color: var(--sopralluogo); }
+.reg-bar-track { flex: 1; height: 5px; background: var(--surface-2); border-radius: 3px; overflow: hidden; }
+.reg-bar-fill { height: 100%; border-radius: 3px; transition: width .4s ease; }
+.reg-bar-fill.inst { background: var(--todo); }
+.reg-bar-fill.sopr { background: var(--sopralluogo); }
+.rpb-count { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); width: 32px; text-align: right; flex-shrink: 0; }
+
+/* === Section headers with inline controls === */
+.dash-section-head { display: flex; align-items: center; margin-bottom: 10px; }
+.dash-section-head .dash-title { margin-bottom: 0; flex: 1; }
+.period-tabs { display: flex; gap: 2px; background: var(--surface-2); border-radius: 6px; padding: 2px; }
+.period-tab { padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; color: var(--text-muted); transition: all .15s; }
+.period-tab.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.5); }
+
+/* === Block 4: Activity history === */
+.activity-empty { font-size: 12px; color: var(--text-muted); padding: 16px 0; text-align: center; }
+.activity-item { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--surface-2); }
+.activity-item:last-child { border-bottom: none; }
+.activity-date { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); width: 44px; flex-shrink: 0; }
+.activity-badge { padding: 1px 6px; border-radius: 3px; font-size: 9px; font-weight: 700; letter-spacing: .05em; flex-shrink: 0; }
+.activity-badge.sopr { background: rgba(139,92,246,.15); color: var(--sopralluogo); }
+.activity-badge.inst { background: rgba(245,158,11,.15); color: var(--todo); }
+.activity-pv { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); flex-shrink: 0; }
+.activity-loc { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+
+/* === Block 5: Quick stats === */
+.qs-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.qs-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+.qs-card.wide { grid-column: span 2; }
+.qs-val { font-family: var(--font-mono); font-size: 26px; font-weight: 700; line-height: 1.1; }
+.qs-val.attesa { color: var(--attesa); }
+.qs-val.sospeso { color: var(--sospeso); }
+.qs-val.sm { font-size: 17px; }
+.qs-lbl { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -658,6 +708,28 @@ aside {
         </div>
       </div>
       <div class="econ-info">Installazione: €70 Lomb/Piem/VdA · €60 altre regioni. Archivio incluso. Sospesi esclusi.</div>
+    </div>
+
+    <div class="dash-section">
+      <div class="dash-title">Avanzamento per regione</div>
+      <div id="dashRegionProgress"></div>
+    </div>
+
+    <div class="dash-section">
+      <div class="dash-section-head">
+        <div class="dash-title">Attività recenti</div>
+        <div class="period-tabs">
+          <button class="period-tab" id="periodWeek">7 gg</button>
+          <button class="period-tab active" id="periodMonth">30 gg</button>
+          <button class="period-tab" id="periodAll">Tutto</button>
+        </div>
+      </div>
+      <div id="dashActivity"></div>
+    </div>
+
+    <div class="dash-section">
+      <div class="dash-title">Riepilogo stato</div>
+      <div id="dashQuickStats"></div>
     </div>
   </section>
 
@@ -772,6 +844,109 @@ function switchView(view) {
 
 function renderDashboard() {
   renderEconomicBlock();
+  renderRegionProgress();
+  renderActivityHistory();
+  renderQuickStats();
+}
+
+function renderRegionProgress() {
+  const el = document.getElementById('dashRegionProgress');
+  const stats = {};
+  for (const p of PVS) {
+    const e = effectiveFlags(p);
+    if (e.sospeso) continue;
+    if (!stats[p.regione]) stats[p.regione] = { instTodo: 0, instDone: 0, soprTodo: 0, soprDone: 0 };
+    const s = stats[p.regione];
+    if (e.instFatta) s.instDone++;
+    else if (e.instRichiesta) s.instTodo++;
+    if (e.soprFatto) s.soprDone++;
+    else if (e.soprRichiesto && !e.archivio) s.soprTodo++;
+  }
+  const regions = Object.keys(stats).sort();
+  el.innerHTML = regions.map(reg => {
+    const s = stats[reg];
+    const instTotal = s.instTodo + s.instDone;
+    const soprTotal = s.soprTodo + s.soprDone;
+    const instPct = instTotal > 0 ? Math.round(s.instDone / instTotal * 100) : 0;
+    const soprPct = soprTotal > 0 ? Math.round(s.soprDone / soprTotal * 100) : 0;
+    const shortName = REGION_SHORT[reg] || reg;
+    return `<div class="reg-progress-row" data-region="${reg}" role="button" tabindex="0">
+      <div class="reg-progress-name">${shortName}</div>
+      <div class="reg-progress-bars">
+        ${instTotal > 0 ? `<div class="rpb-row"><span class="rpb-lbl inst">I</span><div class="reg-bar-track"><div class="reg-bar-fill inst" style="width:${instPct}%"></div></div><span class="rpb-count">${s.instDone}/${instTotal}</span></div>` : ''}
+        ${soprTotal > 0 ? `<div class="rpb-row"><span class="rpb-lbl sopr">S</span><div class="reg-bar-track"><div class="reg-bar-fill sopr" style="width:${soprPct}%"></div></div><span class="rpb-count">${s.soprDone}/${soprTotal}</span></div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+  el.querySelectorAll('[data-region]').forEach(row => {
+    row.addEventListener('click', () => {
+      STATE.filters.regions = [row.dataset.region];
+      saveSettings();
+      switchView('mappa');
+      renderFilters();
+      refreshAllMarkers();
+      renderCounters();
+      renderRegionStats();
+      renderList();
+    });
+  });
+}
+
+function renderActivityHistory() {
+  const el = document.getElementById('dashActivity');
+  const now = Date.now();
+  const cutoff = STATE.periodDays === 0 ? 0 : now - STATE.periodDays * 86400000;
+  const events = [];
+  for (const p of PVS) {
+    const e = effectiveFlags(p);
+    if (e.soprTs && e.soprTs >= cutoff) events.push({ ts: e.soprTs, type: 'sopralluogo', p });
+    if (e.instTs && e.instTs >= cutoff) events.push({ ts: e.instTs, type: 'installazione', p });
+  }
+  events.sort((a, b) => b.ts - a.ts);
+  if (events.length === 0) {
+    el.innerHTML = '<div class="activity-empty">Nessuna attività nel periodo selezionato.</div>';
+    return;
+  }
+  el.innerHTML = events.slice(0, 60).map(ev => {
+    const d = new Date(ev.ts);
+    const dateStr = d.toLocaleDateString('it-IT', { day: '2-digit', month: 'short' });
+    const isS = ev.type === 'sopralluogo';
+    return `<div class="activity-item">
+      <span class="activity-date">${dateStr}</span>
+      <span class="activity-badge ${isS ? 'sopr' : 'inst'}">${isS ? 'Sopr.' : 'Inst.'}</span>
+      <span class="activity-pv">${ev.p.pv}</span>
+      <span class="activity-loc">${ev.p.comune}, ${REGION_SHORT[ev.p.regione] || ev.p.regione}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderQuickStats() {
+  const el = document.getElementById('dashQuickStats');
+  let instTodo = 0, soprTodo = 0, attesa = 0, sospesi = 0;
+  const regionTodo = {};
+  for (const p of PVS) {
+    const e = effectiveFlags(p);
+    if (e.archivio) continue;
+    if (e.sospeso) { sospesi++; continue; }
+    if (e.instRichiesta && !e.instFatta) {
+      instTodo++;
+      regionTodo[p.regione] = (regionTodo[p.regione] || 0) + 1;
+    }
+    if (e.soprRichiesto && !e.soprFatto) {
+      soprTodo++;
+      regionTodo[p.regione] = (regionTodo[p.regione] || 0) + 1;
+    }
+    if (e.soprFatto && e.instRichiesta && !e.instFatta) attesa++;
+  }
+  const topEntry = Object.entries(regionTodo).sort((a, b) => b[1] - a[1])[0];
+  const topName = topEntry ? (REGION_SHORT[topEntry[0]] || topEntry[0]) : '–';
+  const topCount = topEntry ? topEntry[1] : 0;
+  el.innerHTML = `<div class="qs-grid">
+    <div class="qs-card"><div class="qs-val">${instTodo + soprTodo}</div><div class="qs-lbl">Attività da fare</div></div>
+    <div class="qs-card"><div class="qs-val attesa">${attesa}</div><div class="qs-lbl">In attesa Serena</div></div>
+    <div class="qs-card"><div class="qs-val sospeso">${sospesi}</div><div class="qs-lbl">Sospesi</div></div>
+    <div class="qs-card"><div class="qs-val sm">${topName}</div><div class="qs-lbl">Regione con più attività (${topCount})</div></div>
+  </div>`;
 }
 
 function renderEconomicBlock() {
@@ -810,6 +985,7 @@ const STATE = {
   filters: { hideDone: true, nearOnly: false, regions: [], showArchive: false, query: '', showInst: false, showSoprl: false },
   view: 'mappa',
   soprTariff: 0,
+  periodDays: 30,
   selectedPv: null,
   markers: {},
   meMarker: null,
@@ -1593,6 +1769,15 @@ async function init() {
     STATE.soprTariff = Math.max(0, parseFloat(e.target.value) || 0);
     renderEconomicBlock();
     saveSettings();
+  });
+
+  [['periodWeek', 7], ['periodMonth', 30], ['periodAll', 0]].forEach(([id, days]) => {
+    document.getElementById(id).addEventListener('click', () => {
+      STATE.periodDays = days;
+      document.querySelectorAll('.period-tab').forEach(t => t.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      renderActivityHistory();
+    });
   });
 
   document.getElementById('locateBtn').addEventListener('click', () => startGeolocation(true));
