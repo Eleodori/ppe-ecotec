@@ -1070,13 +1070,11 @@ function renderCounters() {
   let soprTodo = 0, soprDone = 0, instTodo = 0, instDone = 0;
   for (const p of PVS) {
     const e = effectiveFlags(p);
-    if (e.archivio) continue;
-    if (e.soprRichiesto) {
-      if (e.soprFatto) soprDone++; else soprTodo++;
-    }
-    if (e.instRichiesta) {
-      if (e.instFatta) instDone++; else instTodo++;
-    }
+    // "fatti" contano anche l'archivio (storico già completato); sospesi esclusi da "da fare"
+    if (e.soprFatto) soprDone++;
+    else if (!e.archivio && !e.sospeso && e.soprRichiesto) soprTodo++;
+    if (e.instFatta) instDone++;
+    else if (!e.archivio && !e.sospeso && e.instRichiesta) instTodo++;
   }
   document.getElementById('c-sopr-todo').textContent = soprTodo;
   document.getElementById('c-sopr-done').textContent = soprDone;
