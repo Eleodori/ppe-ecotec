@@ -27,7 +27,9 @@
   --text-muted: #71717a;
   --todo: #f59e0b;
   --done: #22c55e;
-  --problem: #ef4444;
+  --attesa: #60a5fa;
+  --sospeso: #dc2626;
+  --archive: #71717a;
   --me: #3b82f6;
   --sopralluogo: #8b5cf6;
   --shadow-lg: 0 20px 50px -10px rgba(0,0,0,.8);
@@ -111,13 +113,14 @@ header {
 .brand-title { font-size: 15px; }
 .brand-sub { font-size: 10px; color: var(--text-muted); margin-top: -1px; letter-spacing: .03em; }
 
-.counters { display: flex; gap: 6px; margin-left: auto; }
-.counter { display: flex; flex-direction: column; align-items: center; padding: 0 6px; min-width: 40px; }
-.counter-val { font-family: var(--font-mono); font-weight: 600; font-size: 15px; line-height: 1; }
-.counter-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); margin-top: 3px; }
-.counter.todo .counter-val { color: var(--todo); }
-.counter.done .counter-val { color: var(--done); }
-.counter.sopralluogo .counter-val { color: var(--sopralluogo); }
+.counters { display: flex; gap: 4px; margin-left: auto; }
+.counter-group { display: flex; align-items: center; gap: 2px; padding: 0 5px; }
+.cg-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); margin-right: 1px; }
+.cg-todo { font-family: var(--font-mono); font-weight: 700; font-size: 15px; line-height: 1; }
+.cg-sep { font-size: 11px; color: var(--text-muted); padding: 0 1px; }
+.cg-done { font-family: var(--font-mono); font-weight: 500; font-size: 13px; line-height: 1; color: var(--done); }
+.counter-group.sopr .cg-todo { color: var(--sopralluogo); }
+.counter-group.inst .cg-todo { color: var(--todo); }
 
 .icon-btn {
   width: 38px; height: 38px;
@@ -237,6 +240,20 @@ aside {
 .chip.inst-chip.on { background: var(--todo); color: #0a0a0a; }
 .chip.soprl-chip.on { background: var(--sopralluogo); color: white; }
 
+/* === Region stats === */
+.region-stats {
+  padding: 5px 12px 4px;
+  border-bottom: 1px solid var(--border);
+  display: none;
+}
+.rs-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 2px 0; font-size: 11px;
+}
+.rs-name { flex: 1; color: var(--text-muted); font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
+.rs-sopr { color: var(--sopralluogo); font-family: var(--font-mono); font-size: 11px; font-weight: 600; }
+.rs-inst { color: var(--todo); font-family: var(--font-mono); font-size: 11px; font-weight: 600; }
+
 .list-wrap { flex: 1; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; }
 .list-empty { padding: 40px 20px; text-align: center; color: var(--text-muted); font-size: 13px; }
 .list-item {
@@ -250,9 +267,12 @@ aside {
 .list-item.selected { background: rgba(59,130,246,.1); border-left: 3px solid var(--me); padding-left: 11px; }
 
 .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-.dot.todo { background: var(--todo); }
-.dot.done { background: var(--done); }
-.dot.problem { background: var(--problem); }
+.dot.sopr-todo  { background: var(--sopralluogo); }
+.dot.attesa     { background: var(--attesa); }
+.dot.inst-todo  { background: var(--todo); }
+.dot.completato { background: var(--done); }
+.dot.sospeso    { background: var(--sospeso); }
+.dot.archive    { background: var(--archive); opacity: .5; }
 
 .li-body { flex: 1; min-width: 0; }
 .li-row1 { display: flex; align-items: baseline; gap: 8px; }
@@ -302,15 +322,31 @@ aside {
 .detail-row .val { flex: 1; color: var(--text); word-break: break-word; }
 .detail-row .val a { color: var(--me); text-decoration: none; }
 
-.status-banner {
-  margin: 8px 20px;
-  padding: 8px 12px;
+/* === Timeline === */
+.timeline {
+  margin: 0 20px 8px;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  font-size: 12px; font-weight: 500;
-  display: flex; align-items: center; gap: 8px;
+  overflow: hidden;
 }
-.status-banner.done { background: rgba(34,197,94,.12); color: var(--done); }
-.status-banner.problem { background: rgba(239,68,68,.12); color: var(--problem); }
+.tl-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px; font-size: 12px;
+  border-bottom: 1px solid var(--surface-2);
+}
+.tl-row:last-child { border-bottom: none; }
+.tl-icon { font-size: 13px; width: 16px; flex-shrink: 0; text-align: center; }
+.tl-label { flex: 1; color: var(--text-dim); }
+.tl-ts { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); white-space: nowrap; }
+.tl-row.done .tl-icon { color: var(--done); }
+.tl-row.done .tl-label { color: var(--text); }
+.tl-row.pending .tl-icon { color: var(--todo); }
+.tl-row.waiting .tl-icon { color: var(--attesa); }
+.tl-row.waiting .tl-label { color: var(--attesa); }
+.tl-row.blocked .tl-icon { color: var(--sospeso); }
+.tl-row.blocked .tl-label { color: var(--sospeso); }
+.tl-row.dim .tl-icon { color: var(--text-muted); }
+.tl-row.dim .tl-label { color: var(--text-muted); }
 
 .notes-input {
   width: 100%;
@@ -332,6 +368,7 @@ aside {
   display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
   border-top: 1px solid var(--border);
 }
+.detail-actions.one { grid-template-columns: 1fr; }
 .detail-actions.three { grid-template-columns: 1fr 1fr 1fr; }
 .btn {
   padding: 12px 8px;
@@ -346,7 +383,8 @@ aside {
 }
 .btn:active { transform: scale(.97); }
 .btn.primary { background: var(--done); color: #0a0a0a; border-color: var(--done); }
-.btn.danger, .btn.warn { background: var(--problem); color: white; border-color: var(--problem); }
+.btn.primary-sopr { background: var(--sopralluogo); color: white; border-color: var(--sopralluogo); }
+.btn.primary-inst { background: var(--todo); color: #0a0a0a; border-color: var(--todo); }
 .btn.navigate { background: var(--me); color: white; border-color: var(--me); }
 .btn.ghost-undo { background: transparent; color: var(--text-muted); font-size: 12px; border-color: transparent; }
 
@@ -355,8 +393,12 @@ aside {
   padding: 2px 8px; border-radius: 4px; margin-top: 4px;
   font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
 }
-.task-badge.installazione { background: rgba(245,158,11,.14); color: var(--todo); border: 1px solid rgba(245,158,11,.25); }
-.task-badge.sopralluogo { background: rgba(139,92,246,.14); color: var(--sopralluogo); border: 1px solid rgba(139,92,246,.25); }
+.task-badge.sopr-todo  { background: rgba(139,92,246,.14);  color: var(--sopralluogo); border: 1px solid rgba(139,92,246,.25); }
+.task-badge.attesa     { background: rgba(96,165,250,.14);  color: var(--attesa);      border: 1px solid rgba(96,165,250,.25); }
+.task-badge.inst-todo  { background: rgba(245,158,11,.14);  color: var(--todo);        border: 1px solid rgba(245,158,11,.25); }
+.task-badge.completato { background: rgba(34,197,94,.14);   color: var(--done);        border: 1px solid rgba(34,197,94,.25); }
+.task-badge.sospeso    { background: rgba(220,38,38,.14);   color: var(--sospeso);     border: 1px solid rgba(220,38,38,.25); }
+.task-badge.archive    { background: rgba(113,113,122,.14); color: var(--archive);     border: 1px solid rgba(113,113,122,.25); }
 
 .legend-rows { padding: 4px 12px 10px; }
 .legend-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; color: var(--text-dim); }
@@ -388,6 +430,7 @@ aside {
 .menu-pop button:active { background: var(--surface-2); }
 .menu-pop .menu-section { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); pointer-events: none; padding: 8px 12px 4px; }
 .menu-pop hr { border: 0; border-top: 1px solid var(--border); margin: 4px 0; }
+.menu-check { margin-left: auto; font-size: 14px; color: var(--text-muted); }
 
 .radius-control { padding: 10px 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .radius-control .label { font-size: 13px; color: var(--text); flex: 1 0 100%; margin-bottom: 6px; }
@@ -489,9 +532,18 @@ aside {
       </div>
     </div>
     <div class="counters">
-      <div class="counter done"><span class="counter-val mono" id="c-done">·</span><span class="counter-lbl">Fatti</span></div>
-      <div class="counter todo"><span class="counter-val mono" id="c-inst">·</span><span class="counter-lbl">Inst.</span></div>
-      <div class="counter sopralluogo"><span class="counter-val mono" id="c-soprl">·</span><span class="counter-lbl">Soprl.</span></div>
+      <div class="counter-group sopr">
+        <span class="cg-lbl">S</span>
+        <span class="cg-todo mono" id="c-sopr-todo">·</span>
+        <span class="cg-sep">/</span>
+        <span class="cg-done mono" id="c-sopr-done">·</span>
+      </div>
+      <div class="counter-group inst">
+        <span class="cg-lbl">I</span>
+        <span class="cg-todo mono" id="c-inst-todo">·</span>
+        <span class="cg-sep">/</span>
+        <span class="cg-done mono" id="c-inst-done">·</span>
+      </div>
     </div>
     <button class="icon-btn" id="locateBtn" title="Centra su di me">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
@@ -518,7 +570,7 @@ aside {
           <button class="chip todo-chip on" id="chipTodo">Solo da fare</button>
           <button class="chip inst-chip" id="chipInst">Installazioni</button>
           <button class="chip soprl-chip" id="chipSoprl">Sopralluoghi</button>
-          <button class="chip on" data-region="all">Tutte</button>
+          <button class="chip on" id="chipRegAll">Tutte</button>
           <button class="chip" data-region="LOMBARDIA">Lombardia</button>
           <button class="chip" data-region="PIEMONTE">Piemonte</button>
           <button class="chip" data-region="EMILIA ROMAGNA">Emilia</button>
@@ -526,6 +578,7 @@ aside {
           <button class="chip" data-region="MARCHE">Marche</button>
           <button class="chip" data-region="VALLE DAOSTA">VdA</button>
         </div>
+        <div class="region-stats" id="regionStats"></div>
         <div class="list-wrap" id="listWrap"></div>
       </div>
     </aside>
@@ -548,15 +601,18 @@ aside {
     <button id="btnExportCsv">⬇ Completati (CSV)</button>
     <button id="btnImportJson">⬆ Importa backup</button>
     <hr>
+    <button id="btnToggleArchive">📦 Mostra archivio storico<span class="menu-check" id="archiveCheck">○</span></button>
     <button id="btnToggleTheme">🌙 Mappa scura</button>
     <button id="btnAbout">ⓘ Info</button>
     <hr>
     <div class="menu-section">Legenda pin</div>
     <div class="legend-rows">
-      <div class="legend-row"><span class="legend-dot" style="background:var(--todo)"></span>Installazione</div>
-      <div class="legend-row"><span class="legend-dot" style="background:var(--sopralluogo)"></span>Sopralluogo</div>
-      <div class="legend-row"><span class="legend-dot" style="background:var(--done)"></span>Fatto</div>
-      <div class="legend-row"><span class="legend-dot" style="background:var(--problem)"></span>Problema</div>
+      <div class="legend-row"><span class="legend-dot" style="background:var(--sopralluogo)"></span>Sopralluogo da fare</div>
+      <div class="legend-row"><span class="legend-dot" style="background:var(--attesa)"></span>In attesa Serena</div>
+      <div class="legend-row"><span class="legend-dot" style="background:var(--todo)"></span>Installazione da fare</div>
+      <div class="legend-row"><span class="legend-dot" style="background:var(--done)"></span>Completato</div>
+      <div class="legend-row"><span class="legend-dot" style="background:var(--sospeso)"></span>Sospeso</div>
+      <div class="legend-row" id="legendArchive" style="display:none"><span class="legend-dot" style="background:var(--archive);opacity:.5"></span>Archivio storico</div>
     </div>
   </div>
 
@@ -571,7 +627,7 @@ aside {
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>
-    <div id="detailStatus"></div>
+    <div id="detailTimeline"></div>
     <div class="detail-body" id="detailBody"></div>
     <div class="detail-actions" id="detailActions"></div>
   </div>
@@ -615,6 +671,11 @@ if (typeof L === 'undefined') {
   throw new Error('Leaflet missing');
 }
 
+const REGION_SHORT = {
+  'EMILIA ROMAGNA': 'E.ROMAGNA',
+  'VALLE DAOSTA': "V.D'AOSTA",
+};
+
 // === STATE ===
 const STATE = {
   userState: {},
@@ -624,11 +685,11 @@ const STATE = {
   _programmaticMove: false,
   _pendingRecenter: false,
   _lastNearRefreshTs: 0,
-  mapTheme: 'light',   // 'light' | 'dark' | 'terrain'
+  mapTheme: 'light',
   tileLayer: null,
   firstTipSeen: false,
   radiusKm: 10,
-  filters: { hideDone: true, nearOnly: false, region: 'all', query: '', showInst: false, showSoprl: false },
+  filters: { hideDone: true, nearOnly: false, regions: [], showArchive: false, query: '', showInst: false, showSoprl: false },
   selectedPv: null,
   markers: {},
   meMarker: null,
@@ -679,24 +740,60 @@ function saveSettings() {
   Store.set('settings', JSON.stringify({ radiusKm: STATE.radiusKm, filters: STATE.filters, mapTheme: STATE.mapTheme }));
 }
 
+// Converte vecchio userState {fatto, problema, fromSource} → nuovo {sopralluogo_fatto_ts, installazione_fatta_ts}
+function migrateUserState(old) {
+  const out = {};
+  for (const [pvId, v] of Object.entries(old || {})) {
+    const entry = { sopralluogo_fatto_ts: null, installazione_fatta_ts: null, note: v.note || '', updatedAt: v.updatedAt || 0 };
+    if (v.fatto && !v.fromSource) {
+      const p = window.PV_BY_ID && window.PV_BY_ID[pvId];
+      const ts = v.updatedAt || Date.now();
+      if (p && p.sopralluogo_richiesto && !p.installazione_richiesta) {
+        entry.sopralluogo_fatto_ts = ts;
+      } else {
+        entry.installazione_fatta_ts = ts;
+      }
+    }
+    out[pvId] = entry;
+  }
+  return out;
+}
+
 async function loadFromStorage() {
   const us = await Store.get('userState');
-  if (us) { try { STATE.userState = JSON.parse(us) || {}; } catch(e) {} }
-  for (const p of PVS) {
-    if (p.fatto && !STATE.userState[p.pv]) {
-      STATE.userState[p.pv] = { fatto: true, problema: false, note: '(da Excel master)', updatedAt: null, fromSource: true };
-    }
+  if (us) {
+    try {
+      const raw = JSON.parse(us) || {};
+      const needsMigration = Object.values(raw).some(v => v && ('fatto' in v || 'problema' in v));
+      STATE.userState = needsMigration ? migrateUserState(raw) : raw;
+    } catch(e) {}
   }
+
   const set = await Store.get('settings');
   if (set) {
     try {
       const s = JSON.parse(set);
       if (s.radiusKm) STATE.radiusKm = s.radiusKm;
-      if (s.filters) STATE.filters = { ...STATE.filters, ...s.filters };
+      if (s.filters) {
+        const loaded = { ...s.filters };
+        // migrate old single-string region → array
+        if (loaded.region !== undefined && !loaded.regions) {
+          const all = window.ALL_REGIONS || [];
+          loaded.regions = loaded.region === 'all' ? [...all] : (all.includes(loaded.region) ? [loaded.region] : [...all]);
+          delete loaded.region;
+        }
+        if (!Array.isArray(loaded.regions)) loaded.regions = [...(window.ALL_REGIONS || [])];
+        STATE.filters = { ...STATE.filters, ...loaded };
+      }
       if (s.mapTheme && ['light','dark','terrain'].includes(s.mapTheme)) STATE.mapTheme = s.mapTheme;
-      else if (s.darkMap === true) STATE.mapTheme = 'dark';  // migrate legacy bool
+      else if (s.darkMap === true) STATE.mapTheme = 'dark';
     } catch(e) {}
   }
+
+  if (!STATE.filters.regions || STATE.filters.regions.length === 0) {
+    STATE.filters.regions = [...(window.ALL_REGIONS || [])];
+  }
+
   STATE.firstTipSeen = !!(await Store.get('firstTipSeen'));
 }
 
@@ -708,12 +805,34 @@ function dismissFirstTip() {
   Store.set('firstTipSeen', '1');
 }
 
-function statusOf(pv) {
-  const us = STATE.userState[pv.pv] || {};
-  if (us.problema) return 'problem';
-  if (us.fatto) return 'done';
-  return 'todo';
+// Combina master + userState. Master wins per i timestamp.
+function effectiveFlags(p) {
+  const us = STATE.userState[p.pv] || {};
+  const soprFattoTs = p.sopralluogo_ts || us.sopralluogo_fatto_ts || null;
+  const instFattaTs = p.installazione_ts || us.installazione_fatta_ts || null;
+  return {
+    soprRichiesto: !!p.sopralluogo_richiesto,
+    soprFatto: !!(soprFattoTs || p.sopralluogo_fatto),
+    soprTs: soprFattoTs,
+    instRichiesta: !!p.installazione_richiesta,
+    instFatta: !!(instFattaTs || p.installazione_fatta),
+    instTs: instFattaTs,
+    sospeso: !!p.sospeso,
+    archivio: !!p.archivio_storico,
+  };
 }
+
+function statusOf(p) {
+  const e = effectiveFlags(p);
+  if (e.archivio) return 'archive';
+  if (e.sospeso)  return 'sospeso';
+  if (e.instFatta) return 'completato';
+  if (e.instRichiesta) return 'inst-todo';
+  if (e.soprFatto) return 'attesa';
+  if (e.soprRichiesto) return 'sopr-todo';
+  return 'inst-todo'; // fallback — ha comunque un'attività
+}
+
 function haversine(a, b) {
   const R = 6371;
   const toRad = x => x * Math.PI / 180;
@@ -726,6 +845,10 @@ function fmtDist(km) {
   if (km < 1) return Math.round(km * 1000) + '<span class="unit">m</span>';
   if (km < 10) return km.toFixed(1) + '<span class="unit">km</span>';
   return Math.round(km) + '<span class="unit">km</span>';
+}
+function fmtTs(ts) {
+  if (!ts) return '';
+  return new Date(ts).toLocaleString('it-IT', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
 function toast(msg, ms=1800) {
@@ -757,13 +880,22 @@ const MAP_THEMES = {
   },
 };
 
+const PIN_COLOR = {
+  'sopr-todo':  '#8b5cf6',
+  'attesa':     '#60a5fa',
+  'inst-todo':  '#f59e0b',
+  'completato': '#22c55e',
+  'sospeso':    '#dc2626',
+  'archive':    '#71717a',
+};
+
 function initMap() {
   STATE.map = L.map('map', {
     zoomControl: true,
     attributionControl: false,
     preferCanvas: true,
     renderer: L.canvas(),
-    tap: false, // user-scalable=no in viewport handles iOS fast-tap natively; disabling Tap prevents double-click on iOS Safari
+    tap: false,
   }).setView([44.5, 10.5], 7);
   const theme = MAP_THEMES[STATE.mapTheme] || MAP_THEMES.light;
   document.documentElement.style.setProperty('--map-bg', theme.bg);
@@ -804,9 +936,8 @@ function markerStyle(p) {
   const selected = STATE.selectedPv === p.pv;
   const near = STATE.position && haversine(STATE.position, p) <= STATE.radiusKm;
   const dark = STATE.mapTheme === 'dark';
-  let fillColor = p.tipoTask === 'sopralluogo' ? '#8b5cf6' : '#f59e0b';
-  if (status === 'done') fillColor = '#22c55e';
-  if (status === 'problem') fillColor = '#ef4444';
+  const fillColor = PIN_COLOR[status] || '#f59e0b';
+  const isArchive = status === 'archive';
   return {
     radius: selected ? 11 : (near ? 9 : 7),
     fillColor,
@@ -814,7 +945,7 @@ function markerStyle(p) {
          : near    ? (dark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.45)')
          :            (dark ? '#0a0a0a' : '#374151'),
     weight: selected ? 3 : (near ? 2 : 1.5),
-    fillOpacity: 0.95,
+    fillOpacity: isArchive ? 0.45 : 0.95,
   };
 }
 
@@ -825,7 +956,6 @@ function setMapTheme(themeName) {
   STATE.tileLayer.options.maxZoom = t.maxZoom;
   STATE.tileLayer.options.subdomains = t.subdomains;
   STATE.tileLayer.options.attribution = t.attribution;
-  // If current zoom exceeds the new theme's maxZoom, clamp it.
   if (STATE.map.getZoom() > t.maxZoom) STATE.map.setZoom(t.maxZoom);
   document.documentElement.style.setProperty('--map-bg', t.bg);
   refreshAllMarkers();
@@ -900,17 +1030,21 @@ function dbgInit() {
 
 function isPvVisibleInList(p) {
   const f = STATE.filters;
-  const us = STATE.userState[p.pv] || {};
-  if (f.hideDone && us.fatto && !us.problema) return false;
-  if (f.region !== 'all' && p.regione !== f.region) return false;
+  const e = effectiveFlags(p);
+  if (e.archivio && !f.showArchive) return false;
+  if (f.hideDone) {
+    const st = statusOf(p);
+    if (st === 'completato' || st === 'attesa') return false;
+  }
+  if (f.regions.length > 0 && !f.regions.includes(p.regione)) return false;
   if (f.nearOnly) {
     if (!STATE.position) return false;
     if (haversine(STATE.position, p) > STATE.radiusKm) return false;
   }
   if (f.showInst || f.showSoprl) {
-    const typeOk = (f.showInst && (p.tipoTask === 'installazione' || p.tipoTask === 'altro')) ||
-                   (f.showSoprl && p.tipoTask === 'sopralluogo');
-    if (!typeOk) return false;
+    const instOk = f.showInst && e.instRichiesta;
+    const soprOk = f.showSoprl && e.soprRichiesto;
+    if (!instOk && !soprOk) return false;
   }
   if (f.query) {
     const q = f.query.toLowerCase();
@@ -933,15 +1067,53 @@ function sortedFilteredPvs() {
 }
 
 function renderCounters() {
-  let done = 0, inst = 0, soprl = 0;
+  let soprTodo = 0, soprDone = 0, instTodo = 0, instDone = 0;
   for (const p of PVS) {
-    if (statusOf(p) === 'done') done++;
-    else if (p.tipoTask === 'sopralluogo') soprl++;
-    else inst++;
+    const e = effectiveFlags(p);
+    if (e.archivio) continue;
+    if (e.soprRichiesto) {
+      if (e.soprFatto) soprDone++; else soprTodo++;
+    }
+    if (e.instRichiesta) {
+      if (e.instFatta) instDone++; else instTodo++;
+    }
   }
-  document.getElementById('c-done').textContent = done;
-  document.getElementById('c-inst').textContent = inst;
-  document.getElementById('c-soprl').textContent = soprl;
+  document.getElementById('c-sopr-todo').textContent = soprTodo;
+  document.getElementById('c-sopr-done').textContent = soprDone;
+  document.getElementById('c-inst-todo').textContent = instTodo;
+  document.getElementById('c-inst-done').textContent = instDone;
+}
+
+function renderRegionStats() {
+  const el = document.getElementById('regionStats');
+  if (!el) return;
+  const f = STATE.filters;
+  const regionMap = {};
+  for (const p of PVS) {
+    if (!f.regions.includes(p.regione)) continue;
+    const e = effectiveFlags(p);
+    if (e.archivio && !f.showArchive) continue;
+    if (e.sospeso) continue;
+    if (f.nearOnly && (!STATE.position || haversine(STATE.position, p) > STATE.radiusKm)) continue;
+    if (f.query) {
+      const q = f.query.toLowerCase();
+      const hay = (p.pv+' '+p.comune+' '+p.prov+' '+p.regione+' '+p.indirizzo+' '+p.ragSoc+' '+p.name).toLowerCase();
+      if (!hay.includes(q)) continue;
+    }
+    if (!regionMap[p.regione]) regionMap[p.regione] = { soprTodo: 0, instTodo: 0 };
+    if (e.soprRichiesto && !e.soprFatto) regionMap[p.regione].soprTodo++;
+    if (e.instRichiesta && !e.instFatta) regionMap[p.regione].instTodo++;
+  }
+  const rows = [...f.regions].sort().map(r => {
+    const d = regionMap[r] || { soprTodo: 0, instTodo: 0 };
+    if (d.soprTodo === 0 && d.instTodo === 0) return '';
+    const label = REGION_SHORT[r] || r;
+    const s = d.soprTodo > 0 ? `<span class="rs-sopr">${d.soprTodo}s</span>` : '';
+    const i = d.instTodo > 0 ? `<span class="rs-inst">${d.instTodo}i</span>` : '';
+    return `<div class="rs-row"><span class="rs-name">${label}</span>${s}${i}</div>`;
+  }).filter(Boolean).join('');
+  el.innerHTML = rows;
+  el.style.display = rows ? 'block' : 'none';
 }
 
 function renderList() {
@@ -955,7 +1127,7 @@ function renderList() {
       const st = statusOf(p);
       const dist = p._d != null ? fmtDist(p._d) : '';
       const us = STATE.userState[p.pv] || {};
-      const noteHint = us.note && !us.fromSource ? ' · 📝' : '';
+      const noteHint = us.note ? ' · 📝' : '';
       return `<div class="list-item ${STATE.selectedPv === p.pv ? 'selected' : ''}" data-pv="${p.pv}">
         <span class="dot ${st}"></span>
         <div class="li-body">
@@ -978,61 +1150,61 @@ function renderFilters() {
   document.getElementById('chipNear').classList.toggle('on', STATE.filters.nearOnly);
   document.getElementById('chipInst').classList.toggle('on', STATE.filters.showInst);
   document.getElementById('chipSoprl').classList.toggle('on', STATE.filters.showSoprl);
+  const all = window.ALL_REGIONS || [];
+  document.getElementById('chipRegAll').classList.toggle('on', STATE.filters.regions.length === all.length && all.length > 0);
   document.querySelectorAll('[data-region]').forEach(el => {
-    el.classList.toggle('on', el.dataset.region === STATE.filters.region);
+    el.classList.toggle('on', STATE.filters.regions.includes(el.dataset.region));
   });
 }
 
-function selectPv(pvId, opts = {}) {
-  STATE.selectedPv = pvId;
-  const p = PV_BY_ID[pvId];
-  if (!p) return;
-  refreshAllMarkers();
-  renderList();
-  dismissFirstTip();
-  if (!opts.skipPan) {
-    // setView atomico (pan + zoom in un'unica animazione, evita "zoom a cazzo"
-    // dovuto a panTo+setZoom concorrenti).
-    const maxZ = (STATE.tileLayer && STATE.tileLayer.options.maxZoom) || 19;
-    const targetZoom = Math.min(maxZ, Math.max(STATE.map.getZoom(), 14));
-    let target = L.latLng(p.lat, p.lng);
-    // Su mobile la detail-sheet copre la metà inferiore: trasla il target
-    // verso l'alto in pixel-space così il pin resta visibile sopra lo sheet.
-    if (window.innerWidth < 900) {
-      const pt = STATE.map.project(target, targetZoom);
-      pt.y += window.innerHeight * 0.22; // sposta il centro verso il basso → pin verso l'alto
-      target = STATE.map.unproject(pt, targetZoom);
-    }
-    STATE._programmaticMove = true;
-    STATE.map.setView(target, targetZoom, { animate: true });
-    setTimeout(() => { STATE._programmaticMove = false; }, 700);
-  }
-  renderDetail(p);
-  document.getElementById('detailSheet').classList.add('open');
-}
-function closeDetail() {
-  STATE.selectedPv = null;
-  document.getElementById('detailSheet').classList.remove('open');
-  refreshAllMarkers();
-  renderList();
-}
+const BADGE_LABEL = {
+  'sopr-todo':  'Sopralluogo da fare',
+  'attesa':     'In attesa Serena',
+  'inst-todo':  'Installazione da fare',
+  'completato': 'Completato',
+  'sospeso':    'Sospeso',
+  'archive':    'Archiviato',
+};
 
 function renderDetail(p) {
+  const e = effectiveFlags(p);
+  const status = statusOf(p);
+  const us = STATE.userState[p.pv] || {};
+
   document.getElementById('detailPv').textContent = `PV · ${p.pv}`;
-  document.getElementById('detailBadge').innerHTML = p.tipoTask === 'sopralluogo'
-    ? '<span class="task-badge sopralluogo">Sopralluogo</span>'
-    : '<span class="task-badge installazione">Installazione</span>';
+  document.getElementById('detailBadge').innerHTML =
+    `<span class="task-badge ${status}">${BADGE_LABEL[status] || status}</span>`;
   document.getElementById('detailTitle').textContent = `${p.comune} (${p.prov})`;
 
-  const us = STATE.userState[p.pv] || {};
-  const status = statusOf(p);
-  const sb = document.getElementById('detailStatus');
-  if (status === 'done') {
-    const when = us.updatedAt ? new Date(us.updatedAt).toLocaleString('it-IT') : (us.fromSource ? 'già fatto da Excel master' : 'fatto');
-    sb.innerHTML = `<div class="status-banner done">✓ Planimetria installata · ${when}</div>`;
-  } else if (status === 'problem') {
-    sb.innerHTML = `<div class="status-banner problem">⚠ Problema segnalato</div>`;
-  } else sb.innerHTML = '';
+  // Timeline
+  const tlEl = document.getElementById('detailTimeline');
+  const tlRows = [];
+  if (e.sospeso) {
+    tlRows.push(`<div class="tl-row blocked"><span class="tl-icon">⏸</span><span class="tl-label">Sospeso</span></div>`);
+  }
+  if (e.soprRichiesto || e.soprFatto) {
+    if (e.soprFatto) {
+      tlRows.push(`<div class="tl-row done"><span class="tl-icon">✓</span><span class="tl-label">Sopralluogo fatto</span><span class="tl-ts">${fmtTs(e.soprTs)}</span></div>`);
+    } else {
+      tlRows.push(`<div class="tl-row pending"><span class="tl-icon">○</span><span class="tl-label">Sopralluogo da fare</span></div>`);
+    }
+  }
+  if (!e.soprRichiesto && !e.soprFatto && e.instRichiesta) {
+    // nessun sopralluogo previsto
+  } else if (e.soprFatto && !e.instRichiesta) {
+    tlRows.push(`<div class="tl-row waiting"><span class="tl-icon">⋯</span><span class="tl-label">In attesa di Serena</span></div>`);
+  }
+  if (e.instRichiesta || e.instFatta) {
+    if (e.instFatta) {
+      tlRows.push(`<div class="tl-row done"><span class="tl-icon">✓</span><span class="tl-label">Installazione fatta</span><span class="tl-ts">${fmtTs(e.instTs)}</span></div>`);
+    } else {
+      tlRows.push(`<div class="tl-row pending"><span class="tl-icon">○</span><span class="tl-label">Installazione da fare</span></div>`);
+    }
+  }
+  if (e.archivio) {
+    tlRows.push(`<div class="tl-row dim"><span class="tl-icon">📦</span><span class="tl-label">Archiviato</span></div>`);
+  }
+  tlEl.innerHTML = tlRows.length ? `<div class="timeline">${tlRows.join('')}</div>` : '';
 
   const body = document.getElementById('detailBody');
   const dist = STATE.position ? fmtDist(haversine(STATE.position, p)) : null;
@@ -1045,48 +1217,44 @@ function renderDetail(p) {
     <div class="detail-row"><div class="label">Su Google</div><div class="val">${p.name} — ${p.addrGoogle}</div></div>
     ${p.ragSoc ? `<div class="detail-row"><div class="label">Gestore</div><div class="val">${p.ragSoc}</div></div>` : ''}
     ${p.phone ? `<div class="detail-row"><div class="label">Telefono</div><div class="val"><a href="tel:${p.phone.replace(/\s/g,'')}">${p.phone}</a></div></div>` : ''}
-    ${p.status ? `<div class="detail-row"><div class="label">Stato Excel</div><div class="val">${p.status}</div></div>` : ''}
+    ${p.attivita_std ? `<div class="detail-row"><div class="label">Attività</div><div class="val">${p.attivita_std}</div></div>` : ''}
+    ${p.note ? `<div class="detail-row"><div class="label">Note prog.</div><div class="val">${p.note}</div></div>` : ''}
     <div class="detail-row"><div class="label">Coord.</div><div class="val mono">${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}</div></div>
     <div class="detail-row" style="margin-top:8px;flex-direction:column;align-items:stretch;gap:4px"><div class="label">Note di campo</div>
-      <textarea class="notes-input" id="notesInput" placeholder="es. portiera bloccata, gestore al pomeriggio…">${us.note && !us.fromSource ? us.note : ''}</textarea>
+      <textarea class="notes-input" id="notesInput" placeholder="es. portiera bloccata, gestore al pomeriggio…">${us.note || ''}</textarea>
     </div>
     <div class="detail-row"><div class="label">Naviga</div><div class="val"><a href="${ggUrl}" target="_blank" rel="noopener">Google Maps</a> · <a href="${wzUrl}" target="_blank" rel="noopener">Waze</a></div></div>
   `;
 
-  document.getElementById('notesInput').addEventListener('blur', e => {
-    const v = e.target.value.trim();
+  document.getElementById('notesInput').addEventListener('blur', ev => {
+    const v = ev.target.value.trim();
     const cur = STATE.userState[p.pv] || {};
-    if (v !== (cur.note || '') || cur.fromSource) {
-      STATE.userState[p.pv] = { ...cur, note: v, fromSource: false, updatedAt: cur.updatedAt || Date.now() };
+    if (v !== (cur.note || '')) {
+      STATE.userState[p.pv] = { ...cur, note: v, updatedAt: cur.updatedAt || Date.now() };
       saveUserState();
       renderList();
     }
   });
 
+  // Buttons
+  const canUndoSopr = !!us.sopralluogo_fatto_ts && !p.sopralluogo_ts && !p.sopralluogo_fatto;
+  const canUndoInst = !!us.installazione_fatta_ts && !p.installazione_ts && !p.installazione_fatta;
+  const showSoprBtn = e.soprRichiesto && !e.soprFatto && !e.sospeso;
+  const showInstBtn = e.instRichiesta && !e.instFatta && !e.sospeso;
+
   const acts = document.getElementById('detailActions');
-  if (status === 'done') {
-    acts.className = 'detail-actions';
-    acts.innerHTML = `
-      <a class="btn navigate" href="${ggUrl}" target="_blank" rel="noopener">▸ Naviga</a>
-      <button class="btn ghost-undo" onclick="undoDone(${p.pv})">↶ Annulla fatto</button>`;
-  } else if (status === 'problem') {
-    acts.className = 'detail-actions three';
-    acts.innerHTML = `
-      <a class="btn navigate" href="${ggUrl}" target="_blank" rel="noopener">▸ Naviga</a>
-      <button class="btn primary" onclick="markDone(${p.pv})">✓ Fatto</button>
-      <button class="btn ghost-undo" onclick="clearProblem(${p.pv})">↶ Annulla</button>`;
-  } else {
-    acts.className = 'detail-actions three';
-    acts.innerHTML = `
-      <a class="btn navigate" href="${ggUrl}" target="_blank" rel="noopener">▸ Naviga</a>
-      <button class="btn primary" onclick="markDone(${p.pv})">✓ Fatto</button>
-      <button class="btn warn" onclick="markProblem(${p.pv})">⚠ Problema</button>`;
-  }
+  const btns = [];
+  btns.push(`<a class="btn navigate" href="${ggUrl}" target="_blank" rel="noopener">▸ Naviga</a>`);
+  if (showSoprBtn) btns.push(`<button class="btn primary-sopr" onclick="markSopralluogoFatto(${p.pv})">✓ Sopralluogo fatto</button>`);
+  if (showInstBtn) btns.push(`<button class="btn primary-inst" onclick="markInstallazioneFatta(${p.pv})">✓ Installazione fatta</button>`);
+  if (canUndoSopr) btns.push(`<button class="btn ghost-undo" onclick="undoSopralluogo(${p.pv})">↶ Annulla sopralluogo</button>`);
+  if (canUndoInst) btns.push(`<button class="btn ghost-undo" onclick="undoInstallazione(${p.pv})">↶ Annulla installazione</button>`);
+
+  const cols = btns.length >= 3 ? 'three' : btns.length === 1 ? 'one' : '';
+  acts.className = 'detail-actions' + (cols ? ' ' + cols : '');
+  acts.innerHTML = btns.join('');
 }
 
-// Wrappa le azioni: se un onclick inline lancia, l'eccezione finisce in
-// window.onerror (qui passata esplicitamente a __bootError) così la causa
-// del crash mobile diventa visibile invece di restare silente.
 function _safeAction(name, fn) {
   return function(pvId) {
     try {
@@ -1099,27 +1267,36 @@ function _safeAction(name, fn) {
     }
   };
 }
-window.markDone = _safeAction('markDone', (pvId, p) => {
+
+function _afterAction(pvId, p, msg) {
+  saveUserState();
+  refreshMarker(pvId);
+  renderCounters();
+  renderRegionStats();
+  renderList();
+  renderDetail(p);
+  if (msg) toast(msg);
+}
+
+window.markSopralluogoFatto = _safeAction('markSopralluogoFatto', (pvId, p) => {
   const cur = STATE.userState[pvId] || {};
-  STATE.userState[pvId] = { ...cur, fatto: true, problema: false, fromSource: false, updatedAt: Date.now() };
-  saveUserState(); refreshMarker(pvId); renderCounters(); renderList(); renderDetail(p);
-  toast(`PV ${pvId} fatto ✓`);
+  STATE.userState[pvId] = { ...cur, sopralluogo_fatto_ts: Date.now(), updatedAt: Date.now() };
+  _afterAction(pvId, p, `PV ${pvId} — sopralluogo ✓`);
 });
-window.markProblem = _safeAction('markProblem', (pvId, p) => {
+window.markInstallazioneFatta = _safeAction('markInstallazioneFatta', (pvId, p) => {
   const cur = STATE.userState[pvId] || {};
-  STATE.userState[pvId] = { ...cur, fatto: false, problema: true, fromSource: false, updatedAt: Date.now() };
-  saveUserState(); refreshMarker(pvId); renderCounters(); renderList(); renderDetail(p);
-  toast(`PV ${pvId} problema ⚠`);
+  STATE.userState[pvId] = { ...cur, installazione_fatta_ts: Date.now(), updatedAt: Date.now() };
+  _afterAction(pvId, p, `PV ${pvId} — installazione ✓`);
 });
-window.undoDone = _safeAction('undoDone', (pvId, p) => {
+window.undoSopralluogo = _safeAction('undoSopralluogo', (pvId, p) => {
   const cur = STATE.userState[pvId] || {};
-  STATE.userState[pvId] = { ...cur, fatto: false, fromSource: false, updatedAt: Date.now() };
-  saveUserState(); refreshMarker(pvId); renderCounters(); renderList(); renderDetail(p);
+  STATE.userState[pvId] = { ...cur, sopralluogo_fatto_ts: null, updatedAt: Date.now() };
+  _afterAction(pvId, p);
 });
-window.clearProblem = _safeAction('clearProblem', (pvId, p) => {
+window.undoInstallazione = _safeAction('undoInstallazione', (pvId, p) => {
   const cur = STATE.userState[pvId] || {};
-  STATE.userState[pvId] = { ...cur, problema: false, fromSource: false, updatedAt: Date.now() };
-  saveUserState(); refreshMarker(pvId); renderCounters(); renderList(); renderDetail(p);
+  STATE.userState[pvId] = { ...cur, installazione_fatta_ts: null, updatedAt: Date.now() };
+  _afterAction(pvId, p);
 });
 
 function _doRecenter(lat, lng) {
@@ -1131,7 +1308,7 @@ function _doRecenter(lat, lng) {
   };
   STATE.map.once('moveend', clearFlag);
   STATE.map.once('zoomend', clearFlag);
-  setTimeout(clearFlag, 800); // fallback se l'animazione non spara eventi
+  setTimeout(clearFlag, 800);
   STATE.map.setView([lat, lng], Math.max(STATE.map.getZoom(), 12), { animate: true });
 }
 
@@ -1150,14 +1327,11 @@ function startGeolocation(forceCenter=false) {
         DBG.gpsLast = { lat, lng, acc: pos.coords.accuracy, t: Date.now() };
         updateMeMarker();
 
-        // Recenter solo al primo fix o quando l'utente ha premuto esplicitamente 📍.
-        // _pendingRecenter è un flag one-shot: consumato subito per non rientrare alla closure.
         if (wasNull || STATE._pendingRecenter) {
           STATE._pendingRecenter = false;
           _doRecenter(lat, lng);
         }
 
-        // Throttle refreshAllMarkers: ridisegna solo se spostamento >100m oppure >10s dall'ultimo.
         const movedKm = prev ? haversine(prev, STATE.position) : 1;
         const now = Date.now();
         if (movedKm > 0.1 || (now - STATE._lastNearRefreshTs) > 10000) {
@@ -1202,7 +1376,7 @@ function updateMeMarker() {
 }
 
 function exportJson() {
-  const payload = { exportedAt: new Date().toISOString(), version: 1, userState: STATE.userState };
+  const payload = { exportedAt: new Date().toISOString(), version: 2, userState: STATE.userState };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -1212,19 +1386,22 @@ function exportJson() {
   toast('Backup scaricato');
 }
 function exportCsv() {
-  const rows = [['PV','Regione','Provincia','Comune','Indirizzo','GestoreExcel','Stato','DataAggiornamento','Note']];
+  const rows = [['PV','Regione','Provincia','Comune','Indirizzo','Gestore','Attività','Stato','Sopr. fatto','Inst. fatta','Note']];
   for (const p of PVS) {
+    const e = effectiveFlags(p);
     const us = STATE.userState[p.pv] || {};
-    if (!us.fatto && !us.problema) continue;
-    const stato = us.problema ? 'PROBLEMA' : (us.fromSource ? 'FATTO (da Excel)' : 'FATTO');
-    const when = us.updatedAt ? new Date(us.updatedAt).toISOString() : '';
-    rows.push([p.pv, p.regione, p.prov, p.comune, p.indirizzo, p.ragSoc, stato, when, (us.note||'').replace(/[\r\n]+/g,' ')]);
+    const hasSomething = e.soprFatto || e.instFatta || e.sospeso;
+    if (!hasSomething) continue;
+    const stato = e.archivio ? 'ARCHIVIATO' : e.sospeso ? 'SOSPESO' : e.instFatta ? 'COMPLETATO' : e.soprFatto ? 'SOPR.FATTO' : '';
+    const soprWhen = e.soprTs ? new Date(e.soprTs).toISOString() : '';
+    const instWhen = e.instTs ? new Date(e.instTs).toISOString() : '';
+    rows.push([p.pv, p.regione, p.prov, p.comune, p.indirizzo, p.ragSoc, p.attivita_std||'', stato, soprWhen, instWhen, (us.note||'').replace(/[\r\n]+/g,' ')]);
   }
   const csv = rows.map(r => r.map(c => {
     const s = String(c==null?'':c);
     return /[",\n;]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
   }).join(';')).join('\r\n');
-  const blob = new Blob(['\ufeff'+csv], { type: 'text/csv;charset=utf-8;' });
+  const blob = new Blob(['﻿'+csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = `pee_field_completati_${new Date().toISOString().slice(0,10)}.csv`; a.click();
@@ -1238,15 +1415,46 @@ function importJson(file) {
       const data = JSON.parse(e.target.result);
       if (!data.userState) throw new Error('formato non valido');
       if (!confirm('Importare il backup? Lo stato attuale sarà sovrascritto.')) return;
-      STATE.userState = data.userState;
+      const needsMigration = data.version !== 2 || Object.values(data.userState).some(v => v && ('fatto' in v || 'problema' in v));
+      STATE.userState = needsMigration ? migrateUserState(data.userState) : data.userState;
       saveUserState();
-      refreshAllMarkers(); renderCounters(); renderList();
+      refreshAllMarkers(); renderCounters(); renderRegionStats(); renderList();
       toast('Backup importato');
     } catch(err) {
       alert('Errore: ' + err.message);
     }
   };
   reader.readAsText(file);
+}
+
+function selectPv(pvId, opts = {}) {
+  STATE.selectedPv = pvId;
+  const p = PV_BY_ID[pvId];
+  if (!p) return;
+  refreshAllMarkers();
+  renderList();
+  dismissFirstTip();
+  if (!opts.skipPan) {
+    const maxZ = (STATE.tileLayer && STATE.tileLayer.options.maxZoom) || 19;
+    const targetZoom = Math.min(maxZ, Math.max(STATE.map.getZoom(), 14));
+    let target = L.latLng(p.lat, p.lng);
+    if (window.innerWidth < 900) {
+      const pt = STATE.map.project(target, targetZoom);
+      pt.y += window.innerHeight * 0.22;
+      target = STATE.map.unproject(pt, targetZoom);
+    }
+    STATE._programmaticMove = true;
+    STATE.map.setView(target, targetZoom, { animate: true });
+    setTimeout(() => { STATE._programmaticMove = false; }, 700);
+  }
+  renderDetail(p);
+  document.getElementById('detailSheet').classList.add('open');
+}
+function closeDetail() {
+  STATE.selectedPv = null;
+  document.getElementById('detailSheet').classList.remove('open');
+  refreshAllMarkers();
+  renderList();
 }
 
 async function init() {
@@ -1256,6 +1464,7 @@ async function init() {
   renderCounters();
   renderFilters();
   renderList();
+  renderRegionStats();
 
   document.getElementById('locateBtn').addEventListener('click', () => startGeolocation(true));
 
@@ -1295,34 +1504,51 @@ async function init() {
 
   document.getElementById('chipTodo').addEventListener('click', () => {
     STATE.filters.hideDone = !STATE.filters.hideDone;
-    renderFilters(); refreshAllMarkers(); renderList(); saveSettings();
+    renderFilters(); refreshAllMarkers(); renderList(); renderRegionStats(); saveSettings();
   });
   document.getElementById('chipNear').addEventListener('click', () => {
     if (!STATE.position) { toast('Attivo GPS…'); startGeolocation(false); return; }
     STATE.filters.nearOnly = !STATE.filters.nearOnly;
-    renderFilters(); refreshAllMarkers(); renderList(); saveSettings();
+    renderFilters(); refreshAllMarkers(); renderList(); renderRegionStats(); saveSettings();
   });
   document.getElementById('chipInst').addEventListener('click', () => {
     STATE.filters.showInst = !STATE.filters.showInst;
-    renderFilters(); refreshAllMarkers(); renderList(); saveSettings();
+    renderFilters(); refreshAllMarkers(); renderList(); renderRegionStats(); saveSettings();
   });
   document.getElementById('chipSoprl').addEventListener('click', () => {
     STATE.filters.showSoprl = !STATE.filters.showSoprl;
-    renderFilters(); refreshAllMarkers(); renderList(); saveSettings();
+    renderFilters(); refreshAllMarkers(); renderList(); renderRegionStats(); saveSettings();
+  });
+
+  document.getElementById('chipRegAll').addEventListener('click', () => {
+    const all = window.ALL_REGIONS || [];
+    STATE.filters.regions = STATE.filters.regions.length === all.length ? [] : [...all];
+    renderFilters(); refreshAllMarkers(); renderCounters(); renderRegionStats(); renderList(); saveSettings();
   });
   document.querySelectorAll('[data-region]').forEach(btn => {
     btn.addEventListener('click', () => {
-      STATE.filters.region = btn.dataset.region;
-      renderFilters(); refreshAllMarkers(); renderList(); saveSettings();
+      const reg = btn.dataset.region;
+      const idx = STATE.filters.regions.indexOf(reg);
+      if (idx >= 0) STATE.filters.regions.splice(idx, 1);
+      else STATE.filters.regions.push(reg);
+      renderFilters(); refreshAllMarkers(); renderCounters(); renderRegionStats(); renderList(); saveSettings();
     });
   });
 
   document.getElementById('searchInput').addEventListener('input', e => {
     STATE.filters.query = e.target.value.trim();
-    refreshAllMarkers(); renderList();
+    refreshAllMarkers(); renderList(); renderRegionStats();
   });
 
   document.getElementById('detailClose').addEventListener('click', closeDetail);
+
+  document.getElementById('btnToggleArchive').addEventListener('click', () => {
+    STATE.filters.showArchive = !STATE.filters.showArchive;
+    document.getElementById('archiveCheck').textContent = STATE.filters.showArchive ? '●' : '○';
+    document.getElementById('legendArchive').style.display = STATE.filters.showArchive ? 'flex' : 'none';
+    menuPop.classList.remove('open');
+    saveSettings(); refreshAllMarkers(); renderCounters(); renderRegionStats(); renderList();
+  });
 
   document.getElementById('btnToggleTheme').textContent = (MAP_THEMES[STATE.mapTheme] || MAP_THEMES.light).btnLabel;
   document.getElementById('btnToggleTheme').addEventListener('click', () => {
@@ -1338,8 +1564,9 @@ async function init() {
     e.target.value = '';
   });
   document.getElementById('btnAbout').addEventListener('click', () => {
+    const arch = PVS.filter(p => p.archivio_storico).length;
     menuPop.classList.remove('open');
-    alert(`PEE Field v1.2\n${PVS.length} PV caricati.\n\nDati salvati in locale (sopravvivono fra sessioni). Esporta backup JSON regolarmente.`);
+    alert(`PEE Field v2.0\n${PVS.length} PV caricati (${arch} in archivio storico).\n\nDati salvati in locale. Esporta backup JSON regolarmente.`);
   });
 
   document.getElementById('sidebarHandle').addEventListener('click', () => {
@@ -1352,22 +1579,23 @@ async function init() {
     if (e.key === 'Escape') closeDetail();
   });
 
-  // Show app first: il container deve avere dimensioni reali prima di fitBounds.
-  // Se il map viene creato dentro display:none, getSize()=0x0 e getBoundsZoom()=NaN→maxZoom(19).
   document.getElementById('bootMsg').classList.add('gone');
   document.getElementById('app').style.display = 'grid';
   STATE.map.invalidateSize({ animate: false });
 
-  // Tip "Tocca un pin": una volta sola per device (flag in localStorage).
   if (STATE.firstTipSeen) document.getElementById('firstTip').classList.add('hidden');
 
-  const lats = PVS.map(p => p.lat), lngs = PVS.map(p => p.lng);
+  // apply archive filter before fitBounds so archive pins are hidden on load
+  refreshAllMarkers();
+
+  const activePvs = PVS.filter(p => !p.archivio_storico);
+  const pvsFit = activePvs.length > 0 ? activePvs : PVS;
+  const lats = pvsFit.map(p => p.lat), lngs = pvsFit.map(p => p.lng);
   STATE.map.fitBounds([
     [Math.min(...lats), Math.min(...lngs)],
     [Math.max(...lats), Math.max(...lngs)]
   ], { padding: [40, 40] });
 
-  // Deregistra eventuali SW installati in precedenza (v1.x aveva SW attivo).
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.getRegistrations().then(regs => {
       regs.forEach(r => r.unregister());
@@ -1376,9 +1604,6 @@ async function init() {
 }
 
 async function loadDataset() {
-  // cache: 'reload' forza la richiesta diretta al server bypassando il cache HTTP del browser
-  // (problema mobile: iOS Safari serve la versione cached per giorni dopo un deploy).
-  // I header netlify.toml impostano comunque Cache-Control: no-cache come difesa lato server.
   const resp = await fetch('pv_data.json', { cache: 'reload' });
   if (!resp.ok) throw new Error('Dataset non caricato: ' + resp.status);
   return await resp.json();
@@ -1388,6 +1613,9 @@ loadDataset()
   .then(data => {
     window.PVS = data;
     window.PV_BY_ID = Object.fromEntries(data.map(p => [p.pv, p]));
+    window.ALL_REGIONS = [...new Set(data.map(p => p.regione))].sort();
+    const hasNewSchema = data.some(p => 'sopralluogo_richiesto' in p || 'archivio_storico' in p);
+    if (!hasNewSchema) console.warn('pv_data.json: schema vecchio rilevato. Aggiorna il dataset.');
     return init();
   })
   .catch(err => window.__bootError(err.message + '\n' + (err.stack || '')));
