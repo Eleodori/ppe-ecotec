@@ -1328,11 +1328,13 @@ function effectiveFlags(p) {
   const us = STATE.userState[p.pv] || {};
   const soprFattoTs = p.sopralluogo_ts || us.sopralluogo_fatto_ts || null;
   const instFattaTs = p.installazione_ts || us.installazione_fatta_ts || null;
+  const instRichTsUser = us.installazione_richiesta_ts || null;
   return {
     soprRichiesto: !!p.sopralluogo_richiesto,
     soprFatto: !!(soprFattoTs || p.sopralluogo_fatto),
     soprTs: soprFattoTs,
-    instRichiesta: !!p.installazione_richiesta,
+    instRichiesta: !!(p.installazione_richiesta || instRichTsUser),
+    instRichTsUser,
     instFatta: !!(instFattaTs || p.installazione_fatta),
     instTs: instFattaTs,
     sospeso: !!p.sospeso,
@@ -1719,6 +1721,9 @@ function renderDetail(p) {
   } else if (e.soprFatto && !e.instRichiesta) {
     tlRows.push(`<div class="tl-row waiting"><span class="tl-icon">⋯</span><span class="tl-label">In attesa di Serena</span></div>`);
   }
+  if (e.instRichTsUser && !p.installazione_richiesta) {
+    tlRows.push(`<div class="tl-row done"><span class="tl-icon">📐</span><span class="tl-label">Planimetria ricevuta</span><span class="tl-ts">${fmtTs(e.instRichTsUser)}</span></div>`);
+  }
   if (e.instRichiesta || e.instFatta) {
     if (e.instFatta) {
       tlRows.push(`<div class="tl-row done"><span class="tl-icon">✓</span><span class="tl-label">Installazione fatta</span><span class="tl-ts">${fmtTs(e.instTs)}</span></div>`);
@@ -1764,15 +1769,19 @@ function renderDetail(p) {
   // Buttons
   const canUndoSopr = !!us.sopralluogo_fatto_ts && !p.sopralluogo_ts && !p.sopralluogo_fatto;
   const canUndoInst = !!us.installazione_fatta_ts && !p.installazione_ts && !p.installazione_fatta;
+  const canUndoPlanim = !!us.installazione_richiesta_ts && !p.installazione_richiesta && !e.instFatta;
   const showSoprBtn = e.soprRichiesto && !e.soprFatto && !e.sospeso;
   const showInstBtn = e.instRichiesta && !e.instFatta && !e.sospeso;
+  const showPlanimBtn = status === 'attesa' && !e.sospeso;
 
   const acts = document.getElementById('detailActions');
   const btns = [];
   btns.push(`<a class="btn navigate" href="${ggUrl}" target="_blank" rel="noopener">▸ Naviga</a>`);
   if (showSoprBtn) btns.push(`<button class="btn primary-sopr" onclick="markSopralluogoFatto(${p.pv})">✓ Sopralluogo fatto</button>`);
+  if (showPlanimBtn) btns.push(`<button class="btn primary-inst" onclick="markPlanimetriaRicevuta(${p.pv})">📐 Planimetria ricevuta</button>`);
   if (showInstBtn) btns.push(`<button class="btn primary-inst" onclick="markInstallazioneFatta(${p.pv})">✓ Installazione fatta</button>`);
   if (canUndoSopr) btns.push(`<button class="btn ghost-undo" onclick="undoSopralluogo(${p.pv})">↶ Annulla sopralluogo</button>`);
+  if (canUndoPlanim) btns.push(`<button class="btn ghost-undo" onclick="undoPlanimetriaRicevuta(${p.pv})">↶ Annulla planimetria</button>`);
   if (canUndoInst) btns.push(`<button class="btn ghost-undo" onclick="undoInstallazione(${p.pv})">↶ Annulla installazione</button>`);
 
   const cols = btns.length >= 3 ? 'three' : btns.length === 1 ? 'one' : '';
@@ -1821,6 +1830,16 @@ window.undoSopralluogo = _safeAction('undoSopralluogo', (pvId, p) => {
 window.undoInstallazione = _safeAction('undoInstallazione', (pvId, p) => {
   const cur = STATE.userState[pvId] || {};
   STATE.userState[pvId] = { ...cur, installazione_fatta_ts: null, updatedAt: Date.now() };
+  _afterAction(pvId, p);
+});
+window.markPlanimetriaRicevuta = _safeAction('markPlanimetriaRicevuta', (pvId, p) => {
+  const cur = STATE.userState[pvId] || {};
+  STATE.userState[pvId] = { ...cur, installazione_richiesta_ts: Date.now(), updatedAt: Date.now() };
+  _afterAction(pvId, p, `PV ${pvId} — planimetria ricevuta, pronto per installazione`);
+});
+window.undoPlanimetriaRicevuta = _safeAction('undoPlanimetriaRicevuta', (pvId, p) => {
+  const cur = STATE.userState[pvId] || {};
+  STATE.userState[pvId] = { ...cur, installazione_richiesta_ts: null, updatedAt: Date.now() };
   _afterAction(pvId, p);
 });
 
