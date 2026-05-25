@@ -101,8 +101,10 @@ header {
   border-bottom: 1px solid var(--border);
   background: var(--surface);
   z-index: 1000;
+  min-width: 0;
 }
-.brand { display: flex; align-items: center; gap: 8px; font-weight: 600; letter-spacing: -.01em; }
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 600; letter-spacing: -.01em; flex-shrink: 0; min-width: 0; }
+.brand-text { min-width: 0; }
 .brand-mark {
   width: 28px; height: 28px; border-radius: 6px;
   background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%);
@@ -128,6 +130,26 @@ header {
   border-radius: 8px;
   color: var(--text-dim);
   transition: background .15s, color .15s;
+  flex-shrink: 0;
+}
+.counters { flex-shrink: 0; }
+.view-tabs { flex-shrink: 0; }
+
+/* Mobile header compaction */
+@media (max-width: 640px) {
+  header { gap: 6px; padding: var(--safe-top) 8px 0; }
+  .brand-mark { width: 26px; height: 26px; }
+  .brand-text { display: none; }
+  .view-tabs { margin-left: 0; }
+  .view-tab { padding: 5px 8px; font-size: 11px; }
+  .counter-group { padding: 0 3px; gap: 1px; }
+  .cg-lbl { font-size: 8px; }
+  .cg-todo { font-size: 13px; }
+  .cg-done { font-size: 11px; }
+  .icon-btn { width: 34px; height: 34px; }
+}
+@media (max-width: 380px) {
+  .counters { display: none; }
 }
 .icon-btn:hover { background: var(--surface-2); color: var(--text); }
 .icon-btn:active { transform: scale(.95); }
@@ -636,7 +658,7 @@ aside {
   <header>
     <div class="brand">
       <div class="brand-mark">PEE</div>
-      <div>
+      <div class="brand-text">
         <div class="brand-title">PEE Field</div>
         <div class="brand-sub mono">Marit · Iplanet</div>
       </div>
@@ -1456,10 +1478,10 @@ function markerStyle(p) {
 function setMapTheme(themeName) {
   const t = MAP_THEMES[themeName] || MAP_THEMES.light;
   STATE.mapTheme = themeName;
-  STATE.tileLayer.setUrl(t.url);
   STATE.tileLayer.options.maxZoom = t.maxZoom;
-  STATE.tileLayer.options.subdomains = t.subdomains;
+  STATE.tileLayer.options.subdomains = t.subdomains || 'abc';
   STATE.tileLayer.options.attribution = t.attribution;
+  STATE.tileLayer.setUrl(t.url);
   if (STATE.map.getZoom() > t.maxZoom) STATE.map.setZoom(t.maxZoom);
   document.documentElement.style.setProperty('--map-bg', t.bg);
   refreshAllMarkers();
