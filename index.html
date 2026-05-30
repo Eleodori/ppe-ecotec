@@ -750,7 +750,7 @@ aside {
           <span class="econ-tariff-unit">/ visita</span>
         </div>
       </div>
-      <div class="econ-info">Installazione: €70 Lomb/Piem/VdA · €60 altre regioni. Archivio incluso. Sospesi esclusi.</div>
+      <div class="econ-info">Installazione: €60 Umbria/Marche/Toscana/Emilia · €70 altre regioni. Archivio incluso. Sospesi esclusi.</div>
     </div>
 
     <div class="dash-section">
@@ -876,9 +876,9 @@ const REGION_SHORT = {
 };
 
 const REGION_TARIFF = {
-  'LOMBARDIA': 70, 'PIEMONTE': 70, 'VALLE DAOSTA': 70,
-  'EMILIA ROMAGNA': 60, 'TOSCANA': 60, 'MARCHE': 60,
+  'UMBRIA': 60, 'MARCHE': 60, 'TOSCANA': 60, 'EMILIA ROMAGNA': 60,
 };
+const DEFAULT_INST_TARIFF = 70;
 
 function switchView(view) {
   STATE.view = view;
@@ -1083,7 +1083,7 @@ function clusterPotential(pvs) {
   const soprT = STATE.soprTariff || 0;
   for (const p of pvs) {
     const e = effectiveFlags(p);
-    const instTariff = REGION_TARIFF[p.regione] || 60;
+    const instTariff = REGION_TARIFF[p.regione] || DEFAULT_INST_TARIFF;
     if (!e.instFatta && e.instRichiesta) income += instTariff;
     if (soprT > 0 && !e.soprFatto && e.soprRichiesto) income += soprT;
   }
@@ -1180,7 +1180,7 @@ function renderEconomicBlock() {
   for (const p of PVS) {
     const e = effectiveFlags(p);
     if (e.sospeso) continue;
-    const instTariff = REGION_TARIFF[p.regione] || 60;
+    const instTariff = REGION_TARIFF[p.regione] || DEFAULT_INST_TARIFF;
     if (e.instFatta) incassato += instTariff;
     else if (e.instRichiesta) potenziale += instTariff;
     if (soprTariff > 0) {
