@@ -116,13 +116,11 @@ header {
 .brand-sub { font-size: 10px; color: var(--text-muted); margin-top: -1px; letter-spacing: .03em; }
 
 .counters { display: flex; gap: 4px; margin-left: auto; }
-.counter-group { display: flex; align-items: center; gap: 2px; padding: 0 5px; }
+.counter-group { display: flex; align-items: baseline; gap: 2px; padding: 0 5px; }
 .cg-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); margin-right: 1px; }
-.cg-todo { font-family: var(--font-mono); font-weight: 700; font-size: 15px; line-height: 1; }
+.cg-done { font-family: var(--font-mono); font-weight: 700; font-size: 15px; line-height: 1; color: var(--done); }
 .cg-sep { font-size: 11px; color: var(--text-muted); padding: 0 1px; }
-.cg-done { font-family: var(--font-mono); font-weight: 500; font-size: 13px; line-height: 1; color: var(--done); }
-.counter-group.sopr .cg-todo { color: var(--sopralluogo); }
-.counter-group.inst .cg-todo { color: var(--todo); }
+.cg-total { font-family: var(--font-mono); font-weight: 500; font-size: 12px; line-height: 1; color: var(--text-muted); }
 
 .icon-btn {
   width: 38px; height: 38px;
@@ -144,8 +142,8 @@ header {
   .view-tab { padding: 5px 8px; font-size: 11px; }
   .counter-group { padding: 0 3px; gap: 1px; }
   .cg-lbl { font-size: 8px; }
-  .cg-todo { font-size: 13px; }
-  .cg-done { font-size: 11px; }
+  .cg-done { font-size: 13px; }
+  .cg-total { font-size: 10px; }
   .icon-btn { width: 34px; height: 34px; }
 }
 @media (max-width: 380px) {
@@ -747,17 +745,17 @@ aside {
       <button class="view-tab" id="tabDash">Dash</button>
     </nav>
     <div class="counters">
-      <div class="counter-group sopr">
+      <div class="counter-group sopr" title="Sopralluoghi: fatti / totale richiesti">
         <span class="cg-lbl">S</span>
-        <span class="cg-todo mono" id="c-sopr-todo">·</span>
-        <span class="cg-sep">/</span>
         <span class="cg-done mono" id="c-sopr-done">·</span>
-      </div>
-      <div class="counter-group inst">
-        <span class="cg-lbl">I</span>
-        <span class="cg-todo mono" id="c-inst-todo">·</span>
         <span class="cg-sep">/</span>
+        <span class="cg-total mono" id="c-sopr-total">·</span>
+      </div>
+      <div class="counter-group inst" title="Installazioni: fatte / totale richieste">
+        <span class="cg-lbl">I</span>
         <span class="cg-done mono" id="c-inst-done">·</span>
+        <span class="cg-sep">/</span>
+        <span class="cg-total mono" id="c-inst-total">·</span>
       </div>
     </div>
     <button class="icon-btn" id="locateBtn" title="Centra su di me">
@@ -1745,10 +1743,11 @@ function renderCounters() {
     if (e.instFatta) instDone++;
     else if (!e.archivio && !e.sospeso && e.instRichiesta) instTodo++;
   }
-  document.getElementById('c-sopr-todo').textContent = soprTodo;
+  // Mostra "fatti / totale" (totale = fatti + ancora da fare, esclude archive/sospesi)
   document.getElementById('c-sopr-done').textContent = soprDone;
-  document.getElementById('c-inst-todo').textContent = instTodo;
+  document.getElementById('c-sopr-total').textContent = soprDone + soprTodo;
   document.getElementById('c-inst-done').textContent = instDone;
+  document.getElementById('c-inst-total').textContent = instDone + instTodo;
 }
 
 function renderRegionStats() {
