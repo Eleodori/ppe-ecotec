@@ -257,10 +257,48 @@ aside {
 }
 .chip:hover { color: var(--text); }
 .chip.on { background: var(--text); color: var(--bg); }
-.chip.todo-chip.on { background: var(--todo); color: #0a0a0a; }
 .chip.near-chip.on { background: var(--me); color: white; }
 .chip.inst-chip.on { background: var(--todo); color: #0a0a0a; }
 .chip.soprl-chip.on { background: var(--sopralluogo); color: white; }
+.chip.done-chip.on { background: var(--done); color: #0a0a0a; }
+.chip.attesa-chip.on { background: var(--attesa); color: #0a0a0a; }
+.chip.region-chip { background: var(--surface); border: 1px solid var(--border); }
+.chip.region-chip.on { background: var(--me); color: white; border-color: var(--me); }
+.filter-sep { flex: 0 0 auto; width: 1px; height: 20px; background: var(--border); margin: 0 2px; }
+
+.region-pop {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(380px, calc(100vw - 32px));
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 6px;
+  z-index: 1500;
+  display: none;
+  box-shadow: var(--shadow-lg);
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.region-pop.open { display: block; }
+.region-pop .menu-section { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); padding: 8px 12px 4px; }
+.region-pop button {
+  width: 100%; text-align: left;
+  padding: 9px 12px; border-radius: 6px;
+  display: flex; align-items: center; gap: 10px;
+  color: var(--text); font-size: 13px;
+}
+.region-pop button:active { background: var(--surface-2); }
+.region-pop .region-check { margin-left: auto; font-size: 14px; color: var(--text-muted); }
+.region-pop .region-check.on { color: var(--me); }
+.region-pop hr { border: 0; border-top: 1px solid var(--border); margin: 4px 0; }
+.region-pop-backdrop {
+  position: fixed; inset: 0; z-index: 1499;
+  background: rgba(0,0,0,.3);
+  display: none;
+}
+.region-pop-backdrop.open { display: block; }
 
 /* === Region stats === */
 .region-stats {
@@ -703,21 +741,15 @@ aside {
         </div>
         <div class="filter-bar">
           <button class="chip cluster-chip" id="chipCluster" style="display:none">Cluster ×</button>
-          <button class="chip near-chip" id="chipNear">Vicino a me</button>
-          <button class="chip todo-chip on" id="chipTodo">Solo da fare</button>
-          <button class="chip inst-chip" id="chipInst">Installazioni</button>
-          <button class="chip soprl-chip" id="chipSoprl">Sopralluoghi</button>
-          <button class="chip on" id="chipRegAll">Tutte</button>
-          <button class="chip" data-region="LOMBARDIA">Lombardia</button>
-          <button class="chip" data-region="PIEMONTE">Piemonte</button>
-          <button class="chip" data-region="EMILIA ROMAGNA">Emilia</button>
-          <button class="chip" data-region="TOSCANA">Toscana</button>
-          <button class="chip" data-region="MARCHE">Marche</button>
-          <button class="chip" data-region="LIGURIA">Liguria</button>
-          <button class="chip" data-region="VENETO">Veneto</button>
-          <button class="chip" data-region="FRIULI VENEZIA GIULIA">Friuli</button>
-          <button class="chip" data-region="TRENTINO ALTO ADIGE">Trentino</button>
-          <button class="chip" data-region="VALLE DAOSTA">VdA</button>
+          <button class="chip near-chip" id="chipNear">📍 Vicino a me</button>
+          <span class="filter-sep"></span>
+          <button class="chip status-chip on" data-status="all">Tutti</button>
+          <button class="chip status-chip inst-chip" data-status="inst">Installazioni</button>
+          <button class="chip status-chip soprl-chip" data-status="sopr">Sopralluoghi</button>
+          <button class="chip status-chip done-chip" data-status="done">Fatti</button>
+          <button class="chip status-chip attesa-chip" data-status="attesa">Attesa Serena</button>
+          <span class="filter-sep"></span>
+          <button class="chip region-chip" id="chipRegionMenu">🗺 <span id="regionChipLabel">Regioni</span></button>
         </div>
         <div class="region-stats" id="regionStats"></div>
         <div class="list-wrap" id="listWrap"></div>
@@ -798,7 +830,6 @@ aside {
     <button id="btnExportCsv">⬇ Completati (CSV)</button>
     <button id="btnImportJson">⬆ Importa backup</button>
     <hr>
-    <button id="btnToggleArchive">📦 Mostra archivio storico<span class="menu-check" id="archiveCheck">○</span></button>
     <button id="btnToggleTheme">🌙 Scura</button>
     <button id="btnAbout">ⓘ Info</button>
     <hr>
@@ -809,8 +840,24 @@ aside {
       <div class="legend-row"><span class="legend-dot" style="background:var(--todo)"></span>Installazione da fare</div>
       <div class="legend-row"><span class="legend-dot" style="background:var(--done)"></span>Completato</div>
       <div class="legend-row"><span class="legend-dot" style="background:var(--sospeso)"></span>Sospeso</div>
-      <div class="legend-row" id="legendArchive" style="display:none"><span class="legend-dot" style="background:var(--archive);opacity:.5"></span>Archivio storico</div>
     </div>
+  </div>
+
+  <div class="region-pop-backdrop" id="regionPopBackdrop"></div>
+  <div class="region-pop" id="regionPop">
+    <div class="menu-section">Filtra per regione</div>
+    <button id="regionPickAll"><span>Tutte le regioni</span><span class="region-check" id="regionPickAllCheck">○</span></button>
+    <hr>
+    <button class="region-pick" data-region="LOMBARDIA"><span>Lombardia</span><span class="region-check">○</span></button>
+    <button class="region-pick" data-region="PIEMONTE"><span>Piemonte</span><span class="region-check">○</span></button>
+    <button class="region-pick" data-region="EMILIA ROMAGNA"><span>Emilia Romagna</span><span class="region-check">○</span></button>
+    <button class="region-pick" data-region="TOSCANA"><span>Toscana</span><span class="region-check">○</span></button>
+    <button class="region-pick" data-region="MARCHE"><span>Marche</span><span class="region-check">○</span></button>
+    <button class="region-pick" data-region="LIGURIA"><span>Liguria</span><span class="region-check">○</span></button>
+    <button class="region-pick" data-region="VENETO"><span>Veneto</span><span class="region-check">○</span></button>
+    <button class="region-pick" data-region="FRIULI VENEZIA GIULIA"><span>Friuli Venezia Giulia</span><span class="region-check">○</span></button>
+    <button class="region-pick" data-region="TRENTINO ALTO ADIGE"><span>Trentino Alto Adige</span><span class="region-check">○</span></button>
+    <button class="region-pick" data-region="VALLE DAOSTA"><span>Valle d'Aosta</span><span class="region-check">○</span></button>
   </div>
 
   <div class="detail-sheet" id="detailSheet">
@@ -1207,7 +1254,7 @@ const STATE = {
   tileLayer: null,
   firstTipSeen: false,
   radiusKm: 10,
-  filters: { hideDone: true, nearOnly: false, regions: [], showArchive: false, query: '', showInst: false, showSoprl: false, pvIds: null },
+  filters: { statusMode: 'all', nearOnly: false, regions: [], query: '', pvIds: null },
   view: 'mappa',
   soprTariff: 0,
   periodDays: 30,
@@ -1297,15 +1344,19 @@ async function loadFromStorage() {
       const s = JSON.parse(set);
       if (s.radiusKm) STATE.radiusKm = s.radiusKm;
       if (s.filters) {
-        const loaded = { ...s.filters };
+        const loaded = s.filters;
+        const clean = {
+          statusMode: ['all','inst','sopr','done','attesa'].includes(loaded.statusMode) ? loaded.statusMode : 'all',
+          nearOnly: !!loaded.nearOnly,
+          regions: Array.isArray(loaded.regions) ? loaded.regions : [],
+          query: typeof loaded.query === 'string' ? loaded.query : '',
+          pvIds: null,
+        };
         // migrate old single-string region → array
-        if (loaded.region !== undefined && !loaded.regions) {
-          const all = window.ALL_REGIONS || [];
-          loaded.regions = loaded.region === 'all' ? [...all] : (all.includes(loaded.region) ? [loaded.region] : [...all]);
-          delete loaded.region;
+        if (loaded.region !== undefined && !Array.isArray(loaded.regions)) {
+          clean.regions = (loaded.region && loaded.region !== 'all') ? [loaded.region] : [];
         }
-        if (!Array.isArray(loaded.regions)) loaded.regions = [...(window.ALL_REGIONS || [])];
-        STATE.filters = { ...STATE.filters, ...loaded };
+        STATE.filters = { ...STATE.filters, ...clean };
       }
       if (s.mapTheme === 'terrain') STATE.mapTheme = 'topo'; // migrate old key
       else if (s.mapTheme && s.mapTheme in MAP_THEMES) STATE.mapTheme = s.mapTheme;
@@ -1314,9 +1365,7 @@ async function loadFromStorage() {
     } catch(e) {}
   }
 
-  if (!STATE.filters.regions || STATE.filters.regions.length === 0) {
-    STATE.filters.regions = [...(window.ALL_REGIONS || [])];
-  }
+  if (!Array.isArray(STATE.filters.regions)) STATE.filters.regions = [];
 
   STATE.firstTipSeen = !!(await Store.get('firstTipSeen'));
 }
@@ -1566,20 +1615,17 @@ function isPvVisibleInList(p) {
   const f = STATE.filters;
   if (f.pvIds && !f.pvIds.includes(p.pv)) return false;
   const e = effectiveFlags(p);
-  if (e.archivio && !f.showArchive) return false;
-  if (f.hideDone) {
-    const st = statusOf(p);
-    if (st === 'completato' || st === 'attesa') return false;
-  }
+  if (e.archivio) return false;
+  const st = statusOf(p);
+  const mode = f.statusMode || 'all';
+  if (mode === 'inst'   && st !== 'inst-todo')  return false;
+  if (mode === 'sopr'   && st !== 'sopr-todo')  return false;
+  if (mode === 'done'   && st !== 'completato') return false;
+  if (mode === 'attesa' && st !== 'attesa')     return false;
   if (f.regions.length > 0 && !f.regions.includes(p.regione)) return false;
   if (f.nearOnly) {
     if (!STATE.position) return false;
     if (haversine(STATE.position, p) > STATE.radiusKm) return false;
-  }
-  if (f.showInst || f.showSoprl) {
-    const instOk = f.showInst && e.instRichiesta;
-    const soprOk = f.showSoprl && e.soprRichiesto;
-    if (!instOk && !soprOk) return false;
   }
   if (f.query) {
     const q = f.query.toLowerCase();
@@ -1625,7 +1671,7 @@ function renderRegionStats() {
   for (const p of PVS) {
     if (!f.regions.includes(p.regione)) continue;
     const e = effectiveFlags(p);
-    if (e.archivio && !f.showArchive) continue;
+    if (e.archivio) continue;
     if (e.sospeso) continue;
     if (f.nearOnly && (!STATE.position || haversine(STATE.position, p) > STATE.radiusKm)) continue;
     if (f.query) {
@@ -1679,14 +1725,36 @@ function renderList() {
 }
 
 function renderFilters() {
-  document.getElementById('chipTodo').classList.toggle('on', STATE.filters.hideDone);
   document.getElementById('chipNear').classList.toggle('on', STATE.filters.nearOnly);
-  document.getElementById('chipInst').classList.toggle('on', STATE.filters.showInst);
-  document.getElementById('chipSoprl').classList.toggle('on', STATE.filters.showSoprl);
+  const mode = STATE.filters.statusMode || 'all';
+  document.querySelectorAll('.status-chip').forEach(el => {
+    el.classList.toggle('on', el.dataset.status === mode);
+  });
   const all = window.ALL_REGIONS || [];
-  document.getElementById('chipRegAll').classList.toggle('on', STATE.filters.regions.length === all.length && all.length > 0);
-  document.querySelectorAll('[data-region]').forEach(el => {
-    el.classList.toggle('on', STATE.filters.regions.includes(el.dataset.region));
+  const selRegions = STATE.filters.regions || [];
+  const allSelected = selRegions.length === 0 || (all.length > 0 && selRegions.length === all.length);
+  const regionChip = document.getElementById('chipRegionMenu');
+  const regionLabel = document.getElementById('regionChipLabel');
+  regionChip.classList.toggle('on', !allSelected);
+  if (allSelected) {
+    regionLabel.textContent = 'Regioni';
+  } else if (selRegions.length === 1) {
+    regionLabel.textContent = REGION_SHORT[selRegions[0]] || selRegions[0];
+  } else {
+    regionLabel.textContent = `Regioni · ${selRegions.length}`;
+  }
+  // Sync region popover checks
+  const allCheck = document.getElementById('regionPickAllCheck');
+  if (allCheck) allCheck.textContent = allSelected ? '●' : '○';
+  if (allCheck) allCheck.classList.toggle('on', allSelected);
+  document.querySelectorAll('.region-pick').forEach(btn => {
+    const reg = btn.dataset.region;
+    const isOn = !allSelected && selRegions.includes(reg);
+    const chk = btn.querySelector('.region-check');
+    if (chk) {
+      chk.textContent = isOn ? '●' : '○';
+      chk.classList.toggle('on', isOn);
+    }
   });
 }
 
@@ -2072,35 +2140,43 @@ async function init() {
   });
   document.querySelectorAll('#radiusPills button').forEach(b => b.classList.toggle('on', parseInt(b.dataset.r) === STATE.radiusKm));
 
-  document.getElementById('chipTodo').addEventListener('click', () => {
-    STATE.filters.hideDone = !STATE.filters.hideDone;
-    renderFilters(); refreshAllMarkers(); renderList(); renderRegionStats(); saveSettings();
-  });
   document.getElementById('chipNear').addEventListener('click', () => {
     if (!STATE.position) { toast('Attivo GPS…'); startGeolocation(false); return; }
     STATE.filters.nearOnly = !STATE.filters.nearOnly;
     renderFilters(); refreshAllMarkers(); renderList(); renderRegionStats(); saveSettings();
   });
-  document.getElementById('chipInst').addEventListener('click', () => {
-    STATE.filters.showInst = !STATE.filters.showInst;
-    renderFilters(); refreshAllMarkers(); renderList(); renderRegionStats(); saveSettings();
-  });
-  document.getElementById('chipSoprl').addEventListener('click', () => {
-    STATE.filters.showSoprl = !STATE.filters.showSoprl;
-    renderFilters(); refreshAllMarkers(); renderList(); renderRegionStats(); saveSettings();
+  document.querySelectorAll('.status-chip').forEach(el => {
+    el.addEventListener('click', () => {
+      STATE.filters.statusMode = el.dataset.status;
+      renderFilters(); refreshAllMarkers(); renderList(); renderRegionStats(); saveSettings();
+    });
   });
 
-  document.getElementById('chipRegAll').addEventListener('click', () => {
-    const all = window.ALL_REGIONS || [];
-    STATE.filters.regions = STATE.filters.regions.length === all.length ? [] : [...all];
+  const regionPop = document.getElementById('regionPop');
+  const regionBackdrop = document.getElementById('regionPopBackdrop');
+  const closeRegionPop = () => { regionPop.classList.remove('open'); regionBackdrop.classList.remove('open'); };
+  document.getElementById('chipRegionMenu').addEventListener('click', () => {
+    const open = regionPop.classList.toggle('open');
+    regionBackdrop.classList.toggle('open', open);
+  });
+  regionBackdrop.addEventListener('click', closeRegionPop);
+  document.getElementById('regionPickAll').addEventListener('click', () => {
+    STATE.filters.regions = [];
     renderFilters(); refreshAllMarkers(); renderCounters(); renderRegionStats(); renderList(); saveSettings();
   });
-  document.querySelectorAll('[data-region]').forEach(btn => {
+  document.querySelectorAll('.region-pick').forEach(btn => {
     btn.addEventListener('click', () => {
       const reg = btn.dataset.region;
-      const idx = STATE.filters.regions.indexOf(reg);
-      if (idx >= 0) STATE.filters.regions.splice(idx, 1);
-      else STATE.filters.regions.push(reg);
+      const all = window.ALL_REGIONS || [];
+      // First click while "all" is active → switch to single-region selection
+      if (STATE.filters.regions.length === 0 || STATE.filters.regions.length === all.length) {
+        STATE.filters.regions = [reg];
+      } else {
+        const idx = STATE.filters.regions.indexOf(reg);
+        if (idx >= 0) STATE.filters.regions.splice(idx, 1);
+        else STATE.filters.regions.push(reg);
+        if (STATE.filters.regions.length === 0) STATE.filters.regions = [];
+      }
       renderFilters(); refreshAllMarkers(); renderCounters(); renderRegionStats(); renderList(); saveSettings();
     });
   });
@@ -2111,14 +2187,6 @@ async function init() {
   });
 
   document.getElementById('detailClose').addEventListener('click', closeDetail);
-
-  document.getElementById('btnToggleArchive').addEventListener('click', () => {
-    STATE.filters.showArchive = !STATE.filters.showArchive;
-    document.getElementById('archiveCheck').textContent = STATE.filters.showArchive ? '●' : '○';
-    document.getElementById('legendArchive').style.display = STATE.filters.showArchive ? 'flex' : 'none';
-    menuPop.classList.remove('open');
-    saveSettings(); refreshAllMarkers(); renderCounters(); renderRegionStats(); renderList();
-  });
 
   document.getElementById('btnToggleTheme').textContent = (MAP_THEMES[STATE.mapTheme] || MAP_THEMES.light).btnLabel;
   document.getElementById('btnToggleTheme').addEventListener('click', () => {
