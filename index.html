@@ -1424,9 +1424,12 @@ function effectiveFlags(p) {
 
 function statusOf(p) {
   const e = effectiveFlags(p);
-  if (e.archivio) return 'archive';
+  // 'completato' deve avere precedenza su 'archive': un PV può avere
+  // archivio_storico=true nel master ma essere stato installato (instFatta=true).
+  // L'utente vuole vederlo come "Fatto", non come archivio nascosto.
   if (e.sospeso)  return 'sospeso';
   if (e.instFatta) return 'completato';
+  if (e.archivio) return 'archive';
   if (e.instRichiesta) return 'inst-todo';
   if (e.soprFatto) return 'attesa';
   if (e.soprRichiesto) return 'sopr-todo';
@@ -1639,9 +1642,10 @@ function dbgInit() {
 function isPvVisibleInList(p) {
   const f = STATE.filters;
   if (f.pvIds && !f.pvIds.includes(p.pv)) return false;
-  const e = effectiveFlags(p);
-  if (e.archivio) return false;
   const st = statusOf(p);
+  // Nascondi solo gli 'archive' puri (PV vecchi senza azioni): se sono diventati
+  // 'completato' (installazione fatta) restano visibili in 'Tutti' e 'Fatti'.
+  if (st === 'archive') return false;
   const mode = f.statusMode || 'all';
   if (mode === 'inst'   && st !== 'inst-todo')  return false;
   if (mode === 'sopr'   && st !== 'sopr-todo')  return false;
