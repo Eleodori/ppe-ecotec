@@ -936,6 +936,15 @@ function switchView(view) {
   document.getElementById('tabMappa').classList.toggle('active', isMap);
   document.getElementById('tabDash').classList.toggle('active', !isMap);
   document.getElementById('locateBtn').style.display = isMap ? '' : 'none';
+  if (isMap && STATE.map) {
+    // Mentre era display:none la size del container Leaflet diventa stale: con il
+    // renderer canvas i circleMarker finiscono fuori schermo / non vengono ridisegnati.
+    // Forziamo il ricalcolo della dimensione e un redraw quando si torna sulla mappa.
+    requestAnimationFrame(() => {
+      STATE.map.invalidateSize({ animate: false });
+      refreshAllMarkers();
+    });
+  }
   if (!isMap) renderDashboard();
 }
 
@@ -1200,7 +1209,16 @@ async function renderClusters() {
 }
 
 function applyClusterFilter(pvIds) {
+  // Azzera gli altri filtri: in AND col cluster potrebbero svuotare la selezione
+  // e far apparire la mappa "vuota" senza un motivo evidente.
+  STATE.filters.statusMode = 'all';
+  STATE.filters.regions = [];
+  STATE.filters.nearOnly = false;
+  STATE.filters.query = '';
+  const searchEl = document.getElementById('searchInput');
+  if (searchEl) searchEl.value = '';
   STATE.filters.pvIds = pvIds;
+  renderFilters();
   switchView('mappa');
   const chip = document.getElementById('chipCluster');
   chip.style.display = 'flex';
@@ -1313,7 +1331,14 @@ function saveSettings() {
 function migrateUserState(old) {
   const out = {};
   for (const [pvId, v] of Object.entries(old || {})) {
-    const entry = { sopralluogo_fatto_ts: null, installazione_fatta_ts: null, note: v.note || '', updatedAt: v.updatedAt || 0 };
+    const entry = {
+      // preserva i campi già in formato nuovo (stato misto vecchio/nuovo nello stesso backup)
+      sopralluogo_fatto_ts: v.sopralluogo_fatto_ts || null,
+      installazione_fatta_ts: v.installazione_fatta_ts || null,
+      installazione_richiesta_ts: v.installazione_richiesta_ts || null,
+      note: v.note || '',
+      updatedAt: v.updatedAt || 0,
+    };
     if (v.fatto && !v.fromSource) {
       const p = window.PV_BY_ID && window.PV_BY_ID[pvId];
       const ts = v.updatedAt || Date.now();
@@ -1623,8 +1648,9 @@ function isPvVisibleInList(p) {
   if (mode === 'done'   && st !== 'completato') return false;
   if (mode === 'attesa' && st !== 'attesa')     return false;
   if (f.regions.length > 0 && !f.regions.includes(p.regione)) return false;
-  if (f.nearOnly) {
-    if (!STATE.position) return false;
+  // Filtra per vicinanza solo se abbiamo davvero una posizione: senza GPS mostriamo
+  // comunque tutto (altrimenti la mappa resterebbe vuota in attesa del fix).
+  if (f.nearOnly && STATE.position) {
     if (haversine(STATE.position, p) > STATE.radiusKm) return false;
   }
   if (f.query) {
@@ -2031,7 +2057,9 @@ function importJson(file) {
   reader.onload = e => {
     try {
       const data = JSON.parse(e.target.result);
-      if (!data.userState) throw new Error('formato non valido');
+      if (!data.userState || typeof data.userState !== 'object' || Array.isArray(data.userState)) {
+        throw new Error('formato non valido');
+      }
       if (!confirm('Importare il backup? Lo stato attuale sarà sovrascritto.')) return;
       const needsMigration = data.version !== 2 || Object.values(data.userState).some(v => v && ('fatto' in v || 'problema' in v));
       STATE.userState = needsMigration ? migrateUserState(data.userState) : data.userState;
@@ -2081,8 +2109,15 @@ async function init() {
   dbgInit();
   renderCounters();
   renderFilters();
+  // Ripopola la casella di ricerca col filtro salvato, altrimenti i PV risulterebbero
+  // filtrati senza che l'utente veda il testo nella search (mappa "vuota" inspiegabile).
+  const searchEl = document.getElementById('searchInput');
+  if (searchEl) searchEl.value = STATE.filters.query || '';
   renderList();
   renderRegionStats();
+  // Se il filtro "vicino a me" era attivo da una sessione precedente, riattiva il GPS
+  // così la lista/mappa si restringe davvero appena arriva il fix.
+  if (STATE.filters.nearOnly) startGeolocation(false);
 
   document.getElementById('tabMappa').addEventListener('click', () => switchView('mappa'));
   document.getElementById('tabDash').addEventListener('click', () => switchView('dashboard'));
@@ -2216,6 +2251,23 @@ async function init() {
     if (e.key === 'g' || e.key === 'G') startGeolocation(true);
     if (e.key === 'Escape') closeDetail();
   });
+
+  // Su mobile la barra indirizzi che si ritrae/espande, la rotazione e la tastiera
+  // cambiano l'altezza del container senza un evento di resize affidabile per Leaflet:
+  // la size cached resta vecchia e i pin spariscono / non sono cliccabili. Reinvalida.
+  let _reinvalTimer;
+  const reinvalidateMap = () => {
+    clearTimeout(_reinvalTimer);
+    _reinvalTimer = setTimeout(() => {
+      if (STATE.view === 'mappa' && STATE.map) {
+        STATE.map.invalidateSize({ animate: false });
+        refreshAllMarkers();
+      }
+    }, 150);
+  };
+  window.addEventListener('resize', reinvalidateMap);
+  window.addEventListener('orientationchange', reinvalidateMap);
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', reinvalidateMap);
 
   document.getElementById('bootMsg').classList.add('gone');
   document.getElementById('app').style.display = 'grid';
