@@ -870,6 +870,7 @@ aside {
     <button id="btnImportJson">⬆ Importa backup</button>
     <hr>
     <button id="btnToggleTheme">🌙 Scura</button>
+    <button id="btnForceReload">🔄 Forza aggiornamento</button>
     <button id="btnAbout">ⓘ Info</button>
     <hr>
     <div class="menu-section">Legenda pin</div>
@@ -1517,6 +1518,10 @@ function toast(msg, ms=1800) {
   clearTimeout(toast._t);
   toast._t = setTimeout(() => el.classList.remove('show'), ms);
 }
+
+// Build stamp visibile all'utente per capire se il browser sta servendo la versione
+// vecchia dalla cache. Bumpare ad ogni release significativa.
+const APP_VERSION = '2026-05-30.10';
 
 const MAP_THEMES = {
   light: {
@@ -2383,7 +2388,26 @@ async function init() {
   document.getElementById('btnAbout').addEventListener('click', () => {
     const arch = PVS.filter(p => p.archivio_storico).length;
     menuPop.classList.remove('open');
-    alert(`PEE Field v2.0\n${PVS.length} PV caricati (${arch} in archivio storico).\n\nDati salvati in locale. Esporta backup JSON regolarmente.`);
+    alert(`PEE Field\nVersione: ${APP_VERSION}\n\n${PVS.length} PV caricati (${arch} in archivio storico).\n\nDati salvati in locale. Esporta backup JSON regolarmente.`);
+  });
+
+  document.getElementById('btnForceReload').addEventListener('click', async () => {
+    menuPop.classList.remove('open');
+    if (!confirm('Forza aggiornamento dell\'app?\n\nVerranno cancellate cache browser, service worker e ricaricata la pagina. Lo userState locale (PV segnati) NON viene toccato.')) return;
+    try {
+      if ('caches' in window) {
+        const names = await caches.keys();
+        await Promise.all(names.map(n => caches.delete(n)));
+      }
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister()));
+      }
+    } catch(e) { /* prosegui comunque col reload */ }
+    // Aggiungo querystring così il browser è obbligato a contattare il server
+    const url = new URL(location.href);
+    url.searchParams.set('v', Date.now().toString());
+    location.replace(url.toString());
   });
 
   document.getElementById('sidebarHandle').addEventListener('click', () => {
