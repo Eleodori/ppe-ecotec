@@ -116,13 +116,11 @@ header {
 .brand-sub { font-size: 10px; color: var(--text-muted); margin-top: -1px; letter-spacing: .03em; }
 
 .counters { display: flex; gap: 4px; margin-left: auto; }
-.counter-group { display: flex; align-items: center; gap: 2px; padding: 0 5px; }
+.counter-group { display: flex; align-items: baseline; gap: 2px; padding: 0 5px; }
 .cg-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); margin-right: 1px; }
-.cg-todo { font-family: var(--font-mono); font-weight: 700; font-size: 15px; line-height: 1; }
+.cg-done { font-family: var(--font-mono); font-weight: 700; font-size: 15px; line-height: 1; color: var(--done); }
 .cg-sep { font-size: 11px; color: var(--text-muted); padding: 0 1px; }
-.cg-done { font-family: var(--font-mono); font-weight: 500; font-size: 13px; line-height: 1; color: var(--done); }
-.counter-group.sopr .cg-todo { color: var(--sopralluogo); }
-.counter-group.inst .cg-todo { color: var(--todo); }
+.cg-total { font-family: var(--font-mono); font-weight: 500; font-size: 12px; line-height: 1; color: var(--text-muted); }
 
 .icon-btn {
   width: 38px; height: 38px;
@@ -144,8 +142,8 @@ header {
   .view-tab { padding: 5px 8px; font-size: 11px; }
   .counter-group { padding: 0 3px; gap: 1px; }
   .cg-lbl { font-size: 8px; }
-  .cg-todo { font-size: 13px; }
-  .cg-done { font-size: 11px; }
+  .cg-done { font-size: 13px; }
+  .cg-total { font-size: 10px; }
   .icon-btn { width: 34px; height: 34px; }
 }
 @media (max-width: 380px) {
@@ -257,10 +255,89 @@ aside {
 }
 .chip:hover { color: var(--text); }
 .chip.on { background: var(--text); color: var(--bg); }
-.chip.todo-chip.on { background: var(--todo); color: #0a0a0a; }
 .chip.near-chip.on { background: var(--me); color: white; }
 .chip.inst-chip.on { background: var(--todo); color: #0a0a0a; }
 .chip.soprl-chip.on { background: var(--sopralluogo); color: white; }
+.chip.done-chip.on { background: var(--done); color: #0a0a0a; }
+.chip.attesa-chip.on { background: var(--attesa); color: #0a0a0a; }
+.chip.region-chip { background: var(--surface); border: 1px solid var(--border); }
+.chip.region-chip.on { background: var(--me); color: white; border-color: var(--me); }
+.filter-sep { flex: 0 0 auto; width: 1px; height: 20px; background: var(--border); margin: 0 2px; }
+
+.region-pop {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(380px, calc(100vw - 32px));
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 6px;
+  z-index: 1500;
+  display: none;
+  box-shadow: var(--shadow-lg);
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.region-pop.open { display: block; }
+.region-pop .menu-section { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); padding: 8px 12px 4px; }
+.region-pop button {
+  width: 100%; text-align: left;
+  padding: 9px 12px; border-radius: 6px;
+  display: flex; align-items: center; gap: 10px;
+  color: var(--text); font-size: 13px;
+}
+.region-pop button:active { background: var(--surface-2); }
+.region-pop .region-check { margin-left: auto; font-size: 14px; color: var(--text-muted); }
+.region-pop .region-check.on { color: var(--me); }
+.region-pop hr { border: 0; border-top: 1px solid var(--border); margin: 4px 0; }
+.region-pop-backdrop {
+  position: fixed; inset: 0; z-index: 1499;
+  background: rgba(0,0,0,.3);
+  display: none;
+}
+.region-pop-backdrop.open { display: block; }
+
+/* State picker (cambia stato del PV) */
+.state-pop {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(360px, calc(100vw - 32px));
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 6px;
+  z-index: 2500;
+  display: none;
+  box-shadow: var(--shadow-lg);
+}
+.state-pop.open { display: block; }
+.state-pop .menu-section { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); padding: 8px 12px 4px; }
+.state-pop button {
+  width: 100%; text-align: left;
+  padding: 10px 12px; border-radius: 6px;
+  display: flex; align-items: center; gap: 10px;
+  color: var(--text); font-size: 13px;
+}
+.state-pop button:active { background: var(--surface-2); }
+.state-pop .state-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.state-pop .state-check { margin-left: auto; font-size: 14px; color: var(--text-muted); }
+.state-pop .state-check.on { color: var(--me); }
+.state-pop hr { border: 0; border-top: 1px solid var(--border); margin: 4px 0; }
+.state-pop-backdrop {
+  position: fixed; inset: 0; z-index: 2499;
+  background: rgba(0,0,0,.3);
+  display: none;
+}
+.state-pop-backdrop.open { display: block; }
+.task-badge.state-trigger {
+  cursor: pointer;
+  transition: filter .15s, transform .15s;
+}
+.task-badge.state-trigger:hover { filter: brightness(1.15); }
+.task-badge.state-trigger:active { transform: scale(.97); }
+.state-caret { font-size: 9px; margin-left: 4px; opacity: .8; }
 
 /* === Region stats === */
 .region-stats {
@@ -668,17 +745,17 @@ aside {
       <button class="view-tab" id="tabDash">Dash</button>
     </nav>
     <div class="counters">
-      <div class="counter-group sopr">
+      <div class="counter-group sopr" title="Sopralluoghi: fatti / totale richiesti">
         <span class="cg-lbl">S</span>
-        <span class="cg-todo mono" id="c-sopr-todo">·</span>
-        <span class="cg-sep">/</span>
         <span class="cg-done mono" id="c-sopr-done">·</span>
-      </div>
-      <div class="counter-group inst">
-        <span class="cg-lbl">I</span>
-        <span class="cg-todo mono" id="c-inst-todo">·</span>
         <span class="cg-sep">/</span>
+        <span class="cg-total mono" id="c-sopr-total">·</span>
+      </div>
+      <div class="counter-group inst" title="Installazioni: fatte / totale richieste">
+        <span class="cg-lbl">I</span>
         <span class="cg-done mono" id="c-inst-done">·</span>
+        <span class="cg-sep">/</span>
+        <span class="cg-total mono" id="c-inst-total">·</span>
       </div>
     </div>
     <button class="icon-btn" id="locateBtn" title="Centra su di me">
@@ -703,17 +780,15 @@ aside {
         </div>
         <div class="filter-bar">
           <button class="chip cluster-chip" id="chipCluster" style="display:none">Cluster ×</button>
-          <button class="chip near-chip" id="chipNear">Vicino a me</button>
-          <button class="chip todo-chip on" id="chipTodo">Solo da fare</button>
-          <button class="chip inst-chip" id="chipInst">Installazioni</button>
-          <button class="chip soprl-chip" id="chipSoprl">Sopralluoghi</button>
-          <button class="chip on" id="chipRegAll">Tutte</button>
-          <button class="chip" data-region="LOMBARDIA">Lombardia</button>
-          <button class="chip" data-region="PIEMONTE">Piemonte</button>
-          <button class="chip" data-region="EMILIA ROMAGNA">Emilia</button>
-          <button class="chip" data-region="TOSCANA">Toscana</button>
-          <button class="chip" data-region="MARCHE">Marche</button>
-          <button class="chip" data-region="VALLE DAOSTA">VdA</button>
+          <button class="chip near-chip" id="chipNear">📍 Vicino a me</button>
+          <span class="filter-sep"></span>
+          <button class="chip status-chip on" data-status="all">Tutti</button>
+          <button class="chip status-chip inst-chip" data-status="inst">Installazioni</button>
+          <button class="chip status-chip soprl-chip" data-status="sopr">Sopralluoghi</button>
+          <button class="chip status-chip done-chip" data-status="done">Fatti</button>
+          <button class="chip status-chip attesa-chip" data-status="attesa">Attesa Serena</button>
+          <span class="filter-sep"></span>
+          <button class="chip region-chip" id="chipRegionMenu">🗺 <span id="regionChipLabel">Regioni</span></button>
         </div>
         <div class="region-stats" id="regionStats"></div>
         <div class="list-wrap" id="listWrap"></div>
@@ -746,7 +821,7 @@ aside {
           <span class="econ-tariff-unit">/ visita</span>
         </div>
       </div>
-      <div class="econ-info">Installazione: €70 Lomb/Piem/VdA · €60 altre regioni. Archivio incluso. Sospesi esclusi.</div>
+      <div class="econ-info">Installazione: €60 Umbria/Marche/Toscana/Emilia · €70 altre regioni. Archivio incluso. Sospesi esclusi.</div>
     </div>
 
     <div class="dash-section">
@@ -794,7 +869,6 @@ aside {
     <button id="btnExportCsv">⬇ Completati (CSV)</button>
     <button id="btnImportJson">⬆ Importa backup</button>
     <hr>
-    <button id="btnToggleArchive">📦 Mostra archivio storico<span class="menu-check" id="archiveCheck">○</span></button>
     <button id="btnToggleTheme">🌙 Scura</button>
     <button id="btnAbout">ⓘ Info</button>
     <hr>
@@ -805,8 +879,36 @@ aside {
       <div class="legend-row"><span class="legend-dot" style="background:var(--todo)"></span>Installazione da fare</div>
       <div class="legend-row"><span class="legend-dot" style="background:var(--done)"></span>Completato</div>
       <div class="legend-row"><span class="legend-dot" style="background:var(--sospeso)"></span>Sospeso</div>
-      <div class="legend-row" id="legendArchive" style="display:none"><span class="legend-dot" style="background:var(--archive);opacity:.5"></span>Archivio storico</div>
     </div>
+  </div>
+
+  <div class="region-pop-backdrop" id="regionPopBackdrop"></div>
+  <div class="region-pop" id="regionPop">
+    <div class="menu-section">Filtra per regione</div>
+    <button id="regionPickAll"><span>Tutte le regioni</span><span class="region-check" id="regionPickAllCheck">○</span></button>
+    <hr>
+    <button class="region-pick" data-region="LOMBARDIA"><span>Lombardia</span><span class="region-check">○</span></button>
+    <button class="region-pick" data-region="PIEMONTE"><span>Piemonte</span><span class="region-check">○</span></button>
+    <button class="region-pick" data-region="EMILIA ROMAGNA"><span>Emilia Romagna</span><span class="region-check">○</span></button>
+    <button class="region-pick" data-region="TOSCANA"><span>Toscana</span><span class="region-check">○</span></button>
+    <button class="region-pick" data-region="MARCHE"><span>Marche</span><span class="region-check">○</span></button>
+    <button class="region-pick" data-region="LIGURIA"><span>Liguria</span><span class="region-check">○</span></button>
+    <button class="region-pick" data-region="VENETO"><span>Veneto</span><span class="region-check">○</span></button>
+    <button class="region-pick" data-region="FRIULI VENEZIA GIULIA"><span>Friuli Venezia Giulia</span><span class="region-check">○</span></button>
+    <button class="region-pick" data-region="TRENTINO ALTO ADIGE"><span>Trentino Alto Adige</span><span class="region-check">○</span></button>
+    <button class="region-pick" data-region="VALLE DAOSTA"><span>Valle d'Aosta</span><span class="region-check">○</span></button>
+  </div>
+
+  <div class="state-pop-backdrop" id="statePopBackdrop"></div>
+  <div class="state-pop" id="statePop">
+    <div class="menu-section">Cambia stato del PV</div>
+    <button class="state-pick" data-state="sopr-todo"><span class="state-dot" style="background:var(--sopralluogo)"></span><span>Sopralluogo da fare</span><span class="state-check">○</span></button>
+    <button class="state-pick" data-state="attesa"><span class="state-dot" style="background:var(--attesa)"></span><span>In attesa Serena</span><span class="state-check">○</span></button>
+    <button class="state-pick" data-state="inst-todo"><span class="state-dot" style="background:var(--todo)"></span><span>Installazione da fare</span><span class="state-check">○</span></button>
+    <button class="state-pick" data-state="completato"><span class="state-dot" style="background:var(--done)"></span><span>Completato</span><span class="state-check">○</span></button>
+    <button class="state-pick" data-state="sospeso"><span class="state-dot" style="background:var(--sospeso)"></span><span>Sospeso</span><span class="state-check">○</span></button>
+    <hr>
+    <button class="state-pick" data-state="auto"><span class="state-dot" style="background:transparent;border:1px dashed var(--text-muted)"></span><span>Ripristina (master)</span></button>
   </div>
 
   <div class="detail-sheet" id="detailSheet">
@@ -867,12 +969,14 @@ if (typeof L === 'undefined') {
 const REGION_SHORT = {
   'EMILIA ROMAGNA': 'E.ROMAGNA',
   'VALLE DAOSTA': "V.D'AOSTA",
+  'FRIULI VENEZIA GIULIA': 'FRIULI',
+  'TRENTINO ALTO ADIGE': 'TRENTINO',
 };
 
 const REGION_TARIFF = {
-  'LOMBARDIA': 70, 'PIEMONTE': 70, 'VALLE DAOSTA': 70,
-  'EMILIA ROMAGNA': 60, 'TOSCANA': 60, 'MARCHE': 60,
+  'UMBRIA': 60, 'MARCHE': 60, 'TOSCANA': 60, 'EMILIA ROMAGNA': 60,
 };
+const DEFAULT_INST_TARIFF = 70;
 
 function switchView(view) {
   STATE.view = view;
@@ -883,6 +987,15 @@ function switchView(view) {
   document.getElementById('tabMappa').classList.toggle('active', isMap);
   document.getElementById('tabDash').classList.toggle('active', !isMap);
   document.getElementById('locateBtn').style.display = isMap ? '' : 'none';
+  if (isMap && STATE.map) {
+    // Mentre era display:none la size del container Leaflet diventa stale: con il
+    // renderer canvas i circleMarker finiscono fuori schermo / non vengono ridisegnati.
+    // Forziamo il ricalcolo della dimensione e un redraw quando si torna sulla mappa.
+    requestAnimationFrame(() => {
+      STATE.map.invalidateSize({ animate: false });
+      refreshAllMarkers();
+    });
+  }
   if (!isMap) renderDashboard();
 }
 
@@ -1077,7 +1190,7 @@ function clusterPotential(pvs) {
   const soprT = STATE.soprTariff || 0;
   for (const p of pvs) {
     const e = effectiveFlags(p);
-    const instTariff = REGION_TARIFF[p.regione] || 60;
+    const instTariff = REGION_TARIFF[p.regione] || DEFAULT_INST_TARIFF;
     if (!e.instFatta && e.instRichiesta) income += instTariff;
     if (soprT > 0 && !e.soprFatto && e.soprRichiesto) income += soprT;
   }
@@ -1147,7 +1260,16 @@ async function renderClusters() {
 }
 
 function applyClusterFilter(pvIds) {
+  // Azzera gli altri filtri: in AND col cluster potrebbero svuotare la selezione
+  // e far apparire la mappa "vuota" senza un motivo evidente.
+  STATE.filters.statusMode = 'all';
+  STATE.filters.regions = [];
+  STATE.filters.nearOnly = false;
+  STATE.filters.query = '';
+  const searchEl = document.getElementById('searchInput');
+  if (searchEl) searchEl.value = '';
   STATE.filters.pvIds = pvIds;
+  renderFilters();
   switchView('mappa');
   const chip = document.getElementById('chipCluster');
   chip.style.display = 'flex';
@@ -1174,7 +1296,7 @@ function renderEconomicBlock() {
   for (const p of PVS) {
     const e = effectiveFlags(p);
     if (e.sospeso) continue;
-    const instTariff = REGION_TARIFF[p.regione] || 60;
+    const instTariff = REGION_TARIFF[p.regione] || DEFAULT_INST_TARIFF;
     if (e.instFatta) incassato += instTariff;
     else if (e.instRichiesta) potenziale += instTariff;
     if (soprTariff > 0) {
@@ -1201,7 +1323,7 @@ const STATE = {
   tileLayer: null,
   firstTipSeen: false,
   radiusKm: 10,
-  filters: { hideDone: true, nearOnly: false, regions: [], showArchive: false, query: '', showInst: false, showSoprl: false, pvIds: null },
+  filters: { statusMode: 'all', nearOnly: false, regions: [], query: '', pvIds: null },
   view: 'mappa',
   soprTariff: 0,
   periodDays: 30,
@@ -1260,7 +1382,14 @@ function saveSettings() {
 function migrateUserState(old) {
   const out = {};
   for (const [pvId, v] of Object.entries(old || {})) {
-    const entry = { sopralluogo_fatto_ts: null, installazione_fatta_ts: null, note: v.note || '', updatedAt: v.updatedAt || 0 };
+    const entry = {
+      // preserva i campi già in formato nuovo (stato misto vecchio/nuovo nello stesso backup)
+      sopralluogo_fatto_ts: v.sopralluogo_fatto_ts || null,
+      installazione_fatta_ts: v.installazione_fatta_ts || null,
+      installazione_richiesta_ts: v.installazione_richiesta_ts || null,
+      note: v.note || '',
+      updatedAt: v.updatedAt || 0,
+    };
     if (v.fatto && !v.fromSource) {
       const p = window.PV_BY_ID && window.PV_BY_ID[pvId];
       const ts = v.updatedAt || Date.now();
@@ -1291,15 +1420,19 @@ async function loadFromStorage() {
       const s = JSON.parse(set);
       if (s.radiusKm) STATE.radiusKm = s.radiusKm;
       if (s.filters) {
-        const loaded = { ...s.filters };
+        const loaded = s.filters;
+        const clean = {
+          statusMode: ['all','inst','sopr','done','attesa'].includes(loaded.statusMode) ? loaded.statusMode : 'all',
+          nearOnly: !!loaded.nearOnly,
+          regions: Array.isArray(loaded.regions) ? loaded.regions : [],
+          query: typeof loaded.query === 'string' ? loaded.query : '',
+          pvIds: null,
+        };
         // migrate old single-string region → array
-        if (loaded.region !== undefined && !loaded.regions) {
-          const all = window.ALL_REGIONS || [];
-          loaded.regions = loaded.region === 'all' ? [...all] : (all.includes(loaded.region) ? [loaded.region] : [...all]);
-          delete loaded.region;
+        if (loaded.region !== undefined && !Array.isArray(loaded.regions)) {
+          clean.regions = (loaded.region && loaded.region !== 'all') ? [loaded.region] : [];
         }
-        if (!Array.isArray(loaded.regions)) loaded.regions = [...(window.ALL_REGIONS || [])];
-        STATE.filters = { ...STATE.filters, ...loaded };
+        STATE.filters = { ...STATE.filters, ...clean };
       }
       if (s.mapTheme === 'terrain') STATE.mapTheme = 'topo'; // migrate old key
       else if (s.mapTheme && s.mapTheme in MAP_THEMES) STATE.mapTheme = s.mapTheme;
@@ -1308,9 +1441,7 @@ async function loadFromStorage() {
     } catch(e) {}
   }
 
-  if (!STATE.filters.regions || STATE.filters.regions.length === 0) {
-    STATE.filters.regions = [...(window.ALL_REGIONS || [])];
-  }
+  if (!Array.isArray(STATE.filters.regions)) STATE.filters.regions = [];
 
   STATE.firstTipSeen = !!(await Store.get('firstTipSeen'));
 }
@@ -1326,27 +1457,35 @@ function dismissFirstTip() {
 // Combina master + userState. Master wins per i timestamp.
 function effectiveFlags(p) {
   const us = STATE.userState[p.pv] || {};
+  const o = us.override || {};
   const soprFattoTs = p.sopralluogo_ts || us.sopralluogo_fatto_ts || null;
   const instFattaTs = p.installazione_ts || us.installazione_fatta_ts || null;
   const instRichTsUser = us.installazione_richiesta_ts || null;
+  // override locale (boolean) ha la precedenza sul master, così l'utente può
+  // riclassificare un PV sbagliato (es. da inst-todo a sopr-todo) senza dover
+  // toccare il backend.
+  const ovr = (key, fallback) => (typeof o[key] === 'boolean' ? o[key] : fallback);
   return {
-    soprRichiesto: !!p.sopralluogo_richiesto,
-    soprFatto: !!(soprFattoTs || p.sopralluogo_fatto),
+    soprRichiesto: ovr('soprRich', !!p.sopralluogo_richiesto),
+    soprFatto: ovr('soprFatto', !!(soprFattoTs || p.sopralluogo_fatto)),
     soprTs: soprFattoTs,
-    instRichiesta: !!(p.installazione_richiesta || instRichTsUser),
+    instRichiesta: ovr('instRich', !!(p.installazione_richiesta || instRichTsUser)),
     instRichTsUser,
-    instFatta: !!(instFattaTs || p.installazione_fatta),
+    instFatta: ovr('instFatta', !!(instFattaTs || p.installazione_fatta)),
     instTs: instFattaTs,
-    sospeso: !!p.sospeso,
-    archivio: !!p.archivio_storico,
+    sospeso: ovr('sospeso', !!p.sospeso),
+    archivio: ovr('archive', !!p.archivio_storico),
   };
 }
 
 function statusOf(p) {
   const e = effectiveFlags(p);
-  if (e.archivio) return 'archive';
+  // 'completato' deve avere precedenza su 'archive': un PV può avere
+  // archivio_storico=true nel master ma essere stato installato (instFatta=true).
+  // L'utente vuole vederlo come "Fatto", non come archivio nascosto.
   if (e.sospeso)  return 'sospeso';
   if (e.instFatta) return 'completato';
+  if (e.archivio) return 'archive';
   if (e.instRichiesta) return 'inst-todo';
   if (e.soprFatto) return 'attesa';
   if (e.soprRichiesto) return 'sopr-todo';
@@ -1559,21 +1698,20 @@ function dbgInit() {
 function isPvVisibleInList(p) {
   const f = STATE.filters;
   if (f.pvIds && !f.pvIds.includes(p.pv)) return false;
-  const e = effectiveFlags(p);
-  if (e.archivio && !f.showArchive) return false;
-  if (f.hideDone) {
-    const st = statusOf(p);
-    if (st === 'completato' || st === 'attesa') return false;
-  }
+  const st = statusOf(p);
+  // Nascondi solo gli 'archive' puri (PV vecchi senza azioni): se sono diventati
+  // 'completato' (installazione fatta) restano visibili in 'Tutti' e 'Fatti'.
+  if (st === 'archive') return false;
+  const mode = f.statusMode || 'all';
+  if (mode === 'inst'   && st !== 'inst-todo')  return false;
+  if (mode === 'sopr'   && st !== 'sopr-todo')  return false;
+  if (mode === 'done'   && st !== 'completato') return false;
+  if (mode === 'attesa' && st !== 'attesa')     return false;
   if (f.regions.length > 0 && !f.regions.includes(p.regione)) return false;
-  if (f.nearOnly) {
-    if (!STATE.position) return false;
+  // Filtra per vicinanza solo se abbiamo davvero una posizione: senza GPS mostriamo
+  // comunque tutto (altrimenti la mappa resterebbe vuota in attesa del fix).
+  if (f.nearOnly && STATE.position) {
     if (haversine(STATE.position, p) > STATE.radiusKm) return false;
-  }
-  if (f.showInst || f.showSoprl) {
-    const instOk = f.showInst && e.instRichiesta;
-    const soprOk = f.showSoprl && e.soprRichiesto;
-    if (!instOk && !soprOk) return false;
   }
   if (f.query) {
     const q = f.query.toLowerCase();
@@ -1605,10 +1743,11 @@ function renderCounters() {
     if (e.instFatta) instDone++;
     else if (!e.archivio && !e.sospeso && e.instRichiesta) instTodo++;
   }
-  document.getElementById('c-sopr-todo').textContent = soprTodo;
+  // Mostra "fatti / totale" (totale = fatti + ancora da fare, esclude archive/sospesi)
   document.getElementById('c-sopr-done').textContent = soprDone;
-  document.getElementById('c-inst-todo').textContent = instTodo;
+  document.getElementById('c-sopr-total').textContent = soprDone + soprTodo;
   document.getElementById('c-inst-done').textContent = instDone;
+  document.getElementById('c-inst-total').textContent = instDone + instTodo;
 }
 
 function renderRegionStats() {
@@ -1619,7 +1758,7 @@ function renderRegionStats() {
   for (const p of PVS) {
     if (!f.regions.includes(p.regione)) continue;
     const e = effectiveFlags(p);
-    if (e.archivio && !f.showArchive) continue;
+    if (e.archivio) continue;
     if (e.sospeso) continue;
     if (f.nearOnly && (!STATE.position || haversine(STATE.position, p) > STATE.radiusKm)) continue;
     if (f.query) {
@@ -1673,14 +1812,36 @@ function renderList() {
 }
 
 function renderFilters() {
-  document.getElementById('chipTodo').classList.toggle('on', STATE.filters.hideDone);
   document.getElementById('chipNear').classList.toggle('on', STATE.filters.nearOnly);
-  document.getElementById('chipInst').classList.toggle('on', STATE.filters.showInst);
-  document.getElementById('chipSoprl').classList.toggle('on', STATE.filters.showSoprl);
+  const mode = STATE.filters.statusMode || 'all';
+  document.querySelectorAll('.status-chip').forEach(el => {
+    el.classList.toggle('on', el.dataset.status === mode);
+  });
   const all = window.ALL_REGIONS || [];
-  document.getElementById('chipRegAll').classList.toggle('on', STATE.filters.regions.length === all.length && all.length > 0);
-  document.querySelectorAll('[data-region]').forEach(el => {
-    el.classList.toggle('on', STATE.filters.regions.includes(el.dataset.region));
+  const selRegions = STATE.filters.regions || [];
+  const allSelected = selRegions.length === 0 || (all.length > 0 && selRegions.length === all.length);
+  const regionChip = document.getElementById('chipRegionMenu');
+  const regionLabel = document.getElementById('regionChipLabel');
+  regionChip.classList.toggle('on', !allSelected);
+  if (allSelected) {
+    regionLabel.textContent = 'Regioni';
+  } else if (selRegions.length === 1) {
+    regionLabel.textContent = REGION_SHORT[selRegions[0]] || selRegions[0];
+  } else {
+    regionLabel.textContent = `Regioni · ${selRegions.length}`;
+  }
+  // Sync region popover checks
+  const allCheck = document.getElementById('regionPickAllCheck');
+  if (allCheck) allCheck.textContent = allSelected ? '●' : '○';
+  if (allCheck) allCheck.classList.toggle('on', allSelected);
+  document.querySelectorAll('.region-pick').forEach(btn => {
+    const reg = btn.dataset.region;
+    const isOn = !allSelected && selRegions.includes(reg);
+    const chk = btn.querySelector('.region-check');
+    if (chk) {
+      chk.textContent = isOn ? '●' : '○';
+      chk.classList.toggle('on', isOn);
+    }
   });
 }
 
@@ -1700,7 +1861,7 @@ function renderDetail(p) {
 
   document.getElementById('detailPv').textContent = `PV · ${p.pv}`;
   document.getElementById('detailBadge').innerHTML =
-    `<span class="task-badge ${status}">${BADGE_LABEL[status] || status}</span>`;
+    `<button class="task-badge ${status} state-trigger" onclick="openStatePicker(${p.pv})" title="Cambia stato">${BADGE_LABEL[status] || status} <span class="state-caret">▾</span></button>`;
   document.getElementById('detailTitle').textContent = `${p.comune} (${p.prov})`;
 
   // Timeline
@@ -1790,11 +1951,11 @@ function renderDetail(p) {
 }
 
 function _safeAction(name, fn) {
-  return function(pvId) {
+  return function(pvId, ...rest) {
     try {
       const p = PV_BY_ID[pvId];
       if (!p) throw new Error(name + ': PV ' + pvId + ' non trovato');
-      return fn(pvId, p);
+      return fn(pvId, p, ...rest);
     } catch(err) {
       window.__bootError(name + ' (PV ' + pvId + ') → ' + (err && err.message) + '\n' + (err && err.stack || ''));
       throw err;
@@ -1809,6 +1970,8 @@ function _afterAction(pvId, p, msg) {
   renderRegionStats();
   renderList();
   renderDetail(p);
+  // Se l'utente è (o torna) in dashboard, rerendererizza per riflettere il cambio stato
+  if (STATE.view === 'dashboard') renderDashboard();
   if (msg) toast(msg);
 }
 
@@ -1841,6 +2004,58 @@ window.undoPlanimetriaRicevuta = _safeAction('undoPlanimetriaRicevuta', (pvId, p
   const cur = STATE.userState[pvId] || {};
   STATE.userState[pvId] = { ...cur, installazione_richiesta_ts: null, updatedAt: Date.now() };
   _afterAction(pvId, p);
+});
+
+// Riclassifica un PV verso uno stato specifico tramite override locali. Utile quando
+// il master ha lo stato sbagliato (es. inst-todo invece di sopr-todo).
+// target ∈ {'sopr-todo','attesa','inst-todo','completato','sospeso','auto'}
+const STATE_OVERRIDES = {
+  // Forzare uno stato 'attivo' rimuove anche il flag archivio (un PV che l'utente
+  // sta lavorando NON deve essere considerato archivio storico).
+  'sopr-todo':  { soprRich: true,  soprFatto: false, instRich: false, instFatta: false, sospeso: false, archive: false },
+  'attesa':     { soprRich: false, soprFatto: true,  instRich: false, instFatta: false, sospeso: false, archive: false },
+  'inst-todo':  { soprRich: false, soprFatto: true,  instRich: true,  instFatta: false, sospeso: false, archive: false },
+  'completato': { soprRich: false, soprFatto: true,  instRich: true,  instFatta: true,  sospeso: false, archive: false },
+  'sospeso':    { sospeso: true },
+};
+window.setPvState = _safeAction('setPvState', (pvId, p, target) => {
+  const cur = STATE.userState[pvId] || {};
+  const now = Date.now();
+  const next = { ...cur, updatedAt: now };
+  if (target === 'auto') {
+    // Ripristina: rimuove gli override e i timestamp utente, lascia parlare il master
+    delete next.override;
+    next.sopralluogo_fatto_ts = null;
+    next.installazione_richiesta_ts = null;
+    next.installazione_fatta_ts = null;
+    STATE.userState[pvId] = next;
+    _afterAction(pvId, p, `PV ${pvId} — stato ripristinato dal master`);
+    return;
+  }
+  const ovr = STATE_OVERRIDES[target];
+  if (!ovr) throw new Error('stato non valido: ' + target);
+  next.override = { ...ovr };
+  // Allinea i timestamp utente allo stato target (così la timeline mostra date coerenti)
+  if (target === 'sopr-todo') {
+    next.sopralluogo_fatto_ts = null;
+    next.installazione_richiesta_ts = null;
+    next.installazione_fatta_ts = null;
+  } else if (target === 'attesa') {
+    next.sopralluogo_fatto_ts = cur.sopralluogo_fatto_ts || now;
+    next.installazione_richiesta_ts = null;
+    next.installazione_fatta_ts = null;
+  } else if (target === 'inst-todo') {
+    next.sopralluogo_fatto_ts = cur.sopralluogo_fatto_ts || now;
+    next.installazione_richiesta_ts = cur.installazione_richiesta_ts || now;
+    next.installazione_fatta_ts = null;
+  } else if (target === 'completato') {
+    next.sopralluogo_fatto_ts = cur.sopralluogo_fatto_ts || now;
+    next.installazione_richiesta_ts = cur.installazione_richiesta_ts || now;
+    next.installazione_fatta_ts = cur.installazione_fatta_ts || now;
+  }
+  // target 'sospeso' preserva i timestamp esistenti
+  STATE.userState[pvId] = next;
+  _afterAction(pvId, p, `PV ${pvId} — stato: ${BADGE_LABEL[target] || target}`);
 });
 
 function _doRecenter(lat, lng) {
@@ -1957,7 +2172,9 @@ function importJson(file) {
   reader.onload = e => {
     try {
       const data = JSON.parse(e.target.result);
-      if (!data.userState) throw new Error('formato non valido');
+      if (!data.userState || typeof data.userState !== 'object' || Array.isArray(data.userState)) {
+        throw new Error('formato non valido');
+      }
       if (!confirm('Importare il backup? Lo stato attuale sarà sovrascritto.')) return;
       const needsMigration = data.version !== 2 || Object.values(data.userState).some(v => v && ('fatto' in v || 'problema' in v));
       STATE.userState = needsMigration ? migrateUserState(data.userState) : data.userState;
@@ -2007,8 +2224,15 @@ async function init() {
   dbgInit();
   renderCounters();
   renderFilters();
+  // Ripopola la casella di ricerca col filtro salvato, altrimenti i PV risulterebbero
+  // filtrati senza che l'utente veda il testo nella search (mappa "vuota" inspiegabile).
+  const searchEl = document.getElementById('searchInput');
+  if (searchEl) searchEl.value = STATE.filters.query || '';
   renderList();
   renderRegionStats();
+  // Se il filtro "vicino a me" era attivo da una sessione precedente, riattiva il GPS
+  // così la lista/mappa si restringe davvero appena arriva il fix.
+  if (STATE.filters.nearOnly) startGeolocation(false);
 
   document.getElementById('tabMappa').addEventListener('click', () => switchView('mappa'));
   document.getElementById('tabDash').addEventListener('click', () => switchView('dashboard'));
@@ -2066,36 +2290,73 @@ async function init() {
   });
   document.querySelectorAll('#radiusPills button').forEach(b => b.classList.toggle('on', parseInt(b.dataset.r) === STATE.radiusKm));
 
-  document.getElementById('chipTodo').addEventListener('click', () => {
-    STATE.filters.hideDone = !STATE.filters.hideDone;
-    renderFilters(); refreshAllMarkers(); renderList(); renderRegionStats(); saveSettings();
-  });
   document.getElementById('chipNear').addEventListener('click', () => {
     if (!STATE.position) { toast('Attivo GPS…'); startGeolocation(false); return; }
     STATE.filters.nearOnly = !STATE.filters.nearOnly;
     renderFilters(); refreshAllMarkers(); renderList(); renderRegionStats(); saveSettings();
   });
-  document.getElementById('chipInst').addEventListener('click', () => {
-    STATE.filters.showInst = !STATE.filters.showInst;
-    renderFilters(); refreshAllMarkers(); renderList(); renderRegionStats(); saveSettings();
-  });
-  document.getElementById('chipSoprl').addEventListener('click', () => {
-    STATE.filters.showSoprl = !STATE.filters.showSoprl;
-    renderFilters(); refreshAllMarkers(); renderList(); renderRegionStats(); saveSettings();
+  document.querySelectorAll('.status-chip').forEach(el => {
+    el.addEventListener('click', () => {
+      STATE.filters.statusMode = el.dataset.status;
+      renderFilters(); refreshAllMarkers(); renderList(); renderRegionStats(); saveSettings();
+    });
   });
 
-  document.getElementById('chipRegAll').addEventListener('click', () => {
-    const all = window.ALL_REGIONS || [];
-    STATE.filters.regions = STATE.filters.regions.length === all.length ? [] : [...all];
+  const regionPop = document.getElementById('regionPop');
+  const regionBackdrop = document.getElementById('regionPopBackdrop');
+  const closeRegionPop = () => { regionPop.classList.remove('open'); regionBackdrop.classList.remove('open'); };
+  document.getElementById('chipRegionMenu').addEventListener('click', () => {
+    const open = regionPop.classList.toggle('open');
+    regionBackdrop.classList.toggle('open', open);
+  });
+  regionBackdrop.addEventListener('click', closeRegionPop);
+  document.getElementById('regionPickAll').addEventListener('click', () => {
+    STATE.filters.regions = [];
     renderFilters(); refreshAllMarkers(); renderCounters(); renderRegionStats(); renderList(); saveSettings();
   });
-  document.querySelectorAll('[data-region]').forEach(btn => {
+  document.querySelectorAll('.region-pick').forEach(btn => {
     btn.addEventListener('click', () => {
       const reg = btn.dataset.region;
-      const idx = STATE.filters.regions.indexOf(reg);
-      if (idx >= 0) STATE.filters.regions.splice(idx, 1);
-      else STATE.filters.regions.push(reg);
+      const all = window.ALL_REGIONS || [];
+      // First click while "all" is active → switch to single-region selection
+      if (STATE.filters.regions.length === 0 || STATE.filters.regions.length === all.length) {
+        STATE.filters.regions = [reg];
+      } else {
+        const idx = STATE.filters.regions.indexOf(reg);
+        if (idx >= 0) STATE.filters.regions.splice(idx, 1);
+        else STATE.filters.regions.push(reg);
+        if (STATE.filters.regions.length === 0) STATE.filters.regions = [];
+      }
       renderFilters(); refreshAllMarkers(); renderCounters(); renderRegionStats(); renderList(); saveSettings();
+    });
+  });
+
+  // State picker (cambia stato del PV dal badge nel detail panel)
+  const statePop = document.getElementById('statePop');
+  const stateBackdrop = document.getElementById('statePopBackdrop');
+  const closeStatePop = () => { statePop.classList.remove('open'); stateBackdrop.classList.remove('open'); statePop._pvId = null; };
+  stateBackdrop.addEventListener('click', closeStatePop);
+  window.openStatePicker = (pvId) => {
+    statePop._pvId = pvId;
+    const p = PV_BY_ID[pvId];
+    const curStatus = p ? statusOf(p) : null;
+    statePop.querySelectorAll('.state-pick').forEach(btn => {
+      const chk = btn.querySelector('.state-check');
+      if (!chk) return;
+      const on = btn.dataset.state === curStatus;
+      chk.textContent = on ? '●' : '○';
+      chk.classList.toggle('on', on);
+    });
+    statePop.classList.add('open');
+    stateBackdrop.classList.add('open');
+  };
+  statePop.querySelectorAll('.state-pick').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const pvId = statePop._pvId;
+      if (!pvId) { closeStatePop(); return; }
+      const target = btn.dataset.state;
+      window.setPvState(pvId, target);
+      closeStatePop();
     });
   });
 
@@ -2105,14 +2366,6 @@ async function init() {
   });
 
   document.getElementById('detailClose').addEventListener('click', closeDetail);
-
-  document.getElementById('btnToggleArchive').addEventListener('click', () => {
-    STATE.filters.showArchive = !STATE.filters.showArchive;
-    document.getElementById('archiveCheck').textContent = STATE.filters.showArchive ? '●' : '○';
-    document.getElementById('legendArchive').style.display = STATE.filters.showArchive ? 'flex' : 'none';
-    menuPop.classList.remove('open');
-    saveSettings(); refreshAllMarkers(); renderCounters(); renderRegionStats(); renderList();
-  });
 
   document.getElementById('btnToggleTheme').textContent = (MAP_THEMES[STATE.mapTheme] || MAP_THEMES.light).btnLabel;
   document.getElementById('btnToggleTheme').addEventListener('click', () => {
@@ -2142,6 +2395,23 @@ async function init() {
     if (e.key === 'g' || e.key === 'G') startGeolocation(true);
     if (e.key === 'Escape') closeDetail();
   });
+
+  // Su mobile la barra indirizzi che si ritrae/espande, la rotazione e la tastiera
+  // cambiano l'altezza del container senza un evento di resize affidabile per Leaflet:
+  // la size cached resta vecchia e i pin spariscono / non sono cliccabili. Reinvalida.
+  let _reinvalTimer;
+  const reinvalidateMap = () => {
+    clearTimeout(_reinvalTimer);
+    _reinvalTimer = setTimeout(() => {
+      if (STATE.view === 'mappa' && STATE.map) {
+        STATE.map.invalidateSize({ animate: false });
+        refreshAllMarkers();
+      }
+    }, 150);
+  };
+  window.addEventListener('resize', reinvalidateMap);
+  window.addEventListener('orientationchange', reinvalidateMap);
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', reinvalidateMap);
 
   document.getElementById('bootMsg').classList.add('gone');
   document.getElementById('app').style.display = 'grid';
