@@ -1476,7 +1476,7 @@ function effectiveFlags(p) {
     instFatta: ovr('instFatta', !!(instFattaTs || p.installazione_fatta)),
     instTs: instFattaTs,
     sospeso: ovr('sospeso', !!p.sospeso),
-    archivio: !!p.archivio_storico,
+    archivio: ovr('archive', !!p.archivio_storico),
   };
 }
 
@@ -1971,6 +1971,8 @@ function _afterAction(pvId, p, msg) {
   renderRegionStats();
   renderList();
   renderDetail(p);
+  // Se l'utente è (o torna) in dashboard, rerendererizza per riflettere il cambio stato
+  if (STATE.view === 'dashboard') renderDashboard();
   if (msg) toast(msg);
 }
 
@@ -2009,10 +2011,12 @@ window.undoPlanimetriaRicevuta = _safeAction('undoPlanimetriaRicevuta', (pvId, p
 // il master ha lo stato sbagliato (es. inst-todo invece di sopr-todo).
 // target ∈ {'sopr-todo','attesa','inst-todo','completato','sospeso','auto'}
 const STATE_OVERRIDES = {
-  'sopr-todo':  { soprRich: true,  soprFatto: false, instRich: false, instFatta: false, sospeso: false },
-  'attesa':     { soprRich: false, soprFatto: true,  instRich: false, instFatta: false, sospeso: false },
-  'inst-todo':  { soprRich: false, soprFatto: true,  instRich: true,  instFatta: false, sospeso: false },
-  'completato': { soprRich: false, soprFatto: true,  instRich: true,  instFatta: true,  sospeso: false },
+  // Forzare uno stato 'attivo' rimuove anche il flag archivio (un PV che l'utente
+  // sta lavorando NON deve essere considerato archivio storico).
+  'sopr-todo':  { soprRich: true,  soprFatto: false, instRich: false, instFatta: false, sospeso: false, archive: false },
+  'attesa':     { soprRich: false, soprFatto: true,  instRich: false, instFatta: false, sospeso: false, archive: false },
+  'inst-todo':  { soprRich: false, soprFatto: true,  instRich: true,  instFatta: false, sospeso: false, archive: false },
+  'completato': { soprRich: false, soprFatto: true,  instRich: true,  instFatta: true,  sospeso: false, archive: false },
   'sospeso':    { sospeso: true },
 };
 window.setPvState = _safeAction('setPvState', (pvId, p, target) => {
