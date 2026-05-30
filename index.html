@@ -300,6 +300,47 @@ aside {
 }
 .region-pop-backdrop.open { display: block; }
 
+/* State picker (cambia stato del PV) */
+.state-pop {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(360px, calc(100vw - 32px));
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 6px;
+  z-index: 2500;
+  display: none;
+  box-shadow: var(--shadow-lg);
+}
+.state-pop.open { display: block; }
+.state-pop .menu-section { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); padding: 8px 12px 4px; }
+.state-pop button {
+  width: 100%; text-align: left;
+  padding: 10px 12px; border-radius: 6px;
+  display: flex; align-items: center; gap: 10px;
+  color: var(--text); font-size: 13px;
+}
+.state-pop button:active { background: var(--surface-2); }
+.state-pop .state-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.state-pop .state-check { margin-left: auto; font-size: 14px; color: var(--text-muted); }
+.state-pop .state-check.on { color: var(--me); }
+.state-pop hr { border: 0; border-top: 1px solid var(--border); margin: 4px 0; }
+.state-pop-backdrop {
+  position: fixed; inset: 0; z-index: 2499;
+  background: rgba(0,0,0,.3);
+  display: none;
+}
+.state-pop-backdrop.open { display: block; }
+.task-badge.state-trigger {
+  cursor: pointer;
+  transition: filter .15s, transform .15s;
+}
+.task-badge.state-trigger:hover { filter: brightness(1.15); }
+.task-badge.state-trigger:active { transform: scale(.97); }
+.state-caret { font-size: 9px; margin-left: 4px; opacity: .8; }
+
 /* === Region stats === */
 .region-stats {
   padding: 5px 12px 4px;
@@ -860,6 +901,18 @@ aside {
     <button class="region-pick" data-region="VALLE DAOSTA"><span>Valle d'Aosta</span><span class="region-check">○</span></button>
   </div>
 
+  <div class="state-pop-backdrop" id="statePopBackdrop"></div>
+  <div class="state-pop" id="statePop">
+    <div class="menu-section">Cambia stato del PV</div>
+    <button class="state-pick" data-state="sopr-todo"><span class="state-dot" style="background:var(--sopralluogo)"></span><span>Sopralluogo da fare</span><span class="state-check">○</span></button>
+    <button class="state-pick" data-state="attesa"><span class="state-dot" style="background:var(--attesa)"></span><span>In attesa Serena</span><span class="state-check">○</span></button>
+    <button class="state-pick" data-state="inst-todo"><span class="state-dot" style="background:var(--todo)"></span><span>Installazione da fare</span><span class="state-check">○</span></button>
+    <button class="state-pick" data-state="completato"><span class="state-dot" style="background:var(--done)"></span><span>Completato</span><span class="state-check">○</span></button>
+    <button class="state-pick" data-state="sospeso"><span class="state-dot" style="background:var(--sospeso)"></span><span>Sospeso</span><span class="state-check">○</span></button>
+    <hr>
+    <button class="state-pick" data-state="auto"><span class="state-dot" style="background:transparent;border:1px dashed var(--text-muted)"></span><span>Ripristina (master)</span></button>
+  </div>
+
   <div class="detail-sheet" id="detailSheet">
     <div class="detail-header">
       <div class="detail-meta">
@@ -1406,18 +1459,23 @@ function dismissFirstTip() {
 // Combina master + userState. Master wins per i timestamp.
 function effectiveFlags(p) {
   const us = STATE.userState[p.pv] || {};
+  const o = us.override || {};
   const soprFattoTs = p.sopralluogo_ts || us.sopralluogo_fatto_ts || null;
   const instFattaTs = p.installazione_ts || us.installazione_fatta_ts || null;
   const instRichTsUser = us.installazione_richiesta_ts || null;
+  // override locale (boolean) ha la precedenza sul master, così l'utente può
+  // riclassificare un PV sbagliato (es. da inst-todo a sopr-todo) senza dover
+  // toccare il backend.
+  const ovr = (key, fallback) => (typeof o[key] === 'boolean' ? o[key] : fallback);
   return {
-    soprRichiesto: !!p.sopralluogo_richiesto,
-    soprFatto: !!(soprFattoTs || p.sopralluogo_fatto),
+    soprRichiesto: ovr('soprRich', !!p.sopralluogo_richiesto),
+    soprFatto: ovr('soprFatto', !!(soprFattoTs || p.sopralluogo_fatto)),
     soprTs: soprFattoTs,
-    instRichiesta: !!(p.installazione_richiesta || instRichTsUser),
+    instRichiesta: ovr('instRich', !!(p.installazione_richiesta || instRichTsUser)),
     instRichTsUser,
-    instFatta: !!(instFattaTs || p.installazione_fatta),
+    instFatta: ovr('instFatta', !!(instFattaTs || p.installazione_fatta)),
     instTs: instFattaTs,
-    sospeso: !!p.sospeso,
+    sospeso: ovr('sospeso', !!p.sospeso),
     archivio: !!p.archivio_storico,
   };
 }
@@ -1804,7 +1862,7 @@ function renderDetail(p) {
 
   document.getElementById('detailPv').textContent = `PV · ${p.pv}`;
   document.getElementById('detailBadge').innerHTML =
-    `<span class="task-badge ${status}">${BADGE_LABEL[status] || status}</span>`;
+    `<button class="task-badge ${status} state-trigger" onclick="openStatePicker(${p.pv})" title="Cambia stato">${BADGE_LABEL[status] || status} <span class="state-caret">▾</span></button>`;
   document.getElementById('detailTitle').textContent = `${p.comune} (${p.prov})`;
 
   // Timeline
@@ -1894,11 +1952,11 @@ function renderDetail(p) {
 }
 
 function _safeAction(name, fn) {
-  return function(pvId) {
+  return function(pvId, ...rest) {
     try {
       const p = PV_BY_ID[pvId];
       if (!p) throw new Error(name + ': PV ' + pvId + ' non trovato');
-      return fn(pvId, p);
+      return fn(pvId, p, ...rest);
     } catch(err) {
       window.__bootError(name + ' (PV ' + pvId + ') → ' + (err && err.message) + '\n' + (err && err.stack || ''));
       throw err;
@@ -1945,6 +2003,56 @@ window.undoPlanimetriaRicevuta = _safeAction('undoPlanimetriaRicevuta', (pvId, p
   const cur = STATE.userState[pvId] || {};
   STATE.userState[pvId] = { ...cur, installazione_richiesta_ts: null, updatedAt: Date.now() };
   _afterAction(pvId, p);
+});
+
+// Riclassifica un PV verso uno stato specifico tramite override locali. Utile quando
+// il master ha lo stato sbagliato (es. inst-todo invece di sopr-todo).
+// target ∈ {'sopr-todo','attesa','inst-todo','completato','sospeso','auto'}
+const STATE_OVERRIDES = {
+  'sopr-todo':  { soprRich: true,  soprFatto: false, instRich: false, instFatta: false, sospeso: false },
+  'attesa':     { soprRich: false, soprFatto: true,  instRich: false, instFatta: false, sospeso: false },
+  'inst-todo':  { soprRich: false, soprFatto: true,  instRich: true,  instFatta: false, sospeso: false },
+  'completato': { soprRich: false, soprFatto: true,  instRich: true,  instFatta: true,  sospeso: false },
+  'sospeso':    { sospeso: true },
+};
+window.setPvState = _safeAction('setPvState', (pvId, p, target) => {
+  const cur = STATE.userState[pvId] || {};
+  const now = Date.now();
+  const next = { ...cur, updatedAt: now };
+  if (target === 'auto') {
+    // Ripristina: rimuove gli override e i timestamp utente, lascia parlare il master
+    delete next.override;
+    next.sopralluogo_fatto_ts = null;
+    next.installazione_richiesta_ts = null;
+    next.installazione_fatta_ts = null;
+    STATE.userState[pvId] = next;
+    _afterAction(pvId, p, `PV ${pvId} — stato ripristinato dal master`);
+    return;
+  }
+  const ovr = STATE_OVERRIDES[target];
+  if (!ovr) throw new Error('stato non valido: ' + target);
+  next.override = { ...ovr };
+  // Allinea i timestamp utente allo stato target (così la timeline mostra date coerenti)
+  if (target === 'sopr-todo') {
+    next.sopralluogo_fatto_ts = null;
+    next.installazione_richiesta_ts = null;
+    next.installazione_fatta_ts = null;
+  } else if (target === 'attesa') {
+    next.sopralluogo_fatto_ts = cur.sopralluogo_fatto_ts || now;
+    next.installazione_richiesta_ts = null;
+    next.installazione_fatta_ts = null;
+  } else if (target === 'inst-todo') {
+    next.sopralluogo_fatto_ts = cur.sopralluogo_fatto_ts || now;
+    next.installazione_richiesta_ts = cur.installazione_richiesta_ts || now;
+    next.installazione_fatta_ts = null;
+  } else if (target === 'completato') {
+    next.sopralluogo_fatto_ts = cur.sopralluogo_fatto_ts || now;
+    next.installazione_richiesta_ts = cur.installazione_richiesta_ts || now;
+    next.installazione_fatta_ts = cur.installazione_fatta_ts || now;
+  }
+  // target 'sospeso' preserva i timestamp esistenti
+  STATE.userState[pvId] = next;
+  _afterAction(pvId, p, `PV ${pvId} — stato: ${BADGE_LABEL[target] || target}`);
 });
 
 function _doRecenter(lat, lng) {
@@ -2217,6 +2325,35 @@ async function init() {
         if (STATE.filters.regions.length === 0) STATE.filters.regions = [];
       }
       renderFilters(); refreshAllMarkers(); renderCounters(); renderRegionStats(); renderList(); saveSettings();
+    });
+  });
+
+  // State picker (cambia stato del PV dal badge nel detail panel)
+  const statePop = document.getElementById('statePop');
+  const stateBackdrop = document.getElementById('statePopBackdrop');
+  const closeStatePop = () => { statePop.classList.remove('open'); stateBackdrop.classList.remove('open'); statePop._pvId = null; };
+  stateBackdrop.addEventListener('click', closeStatePop);
+  window.openStatePicker = (pvId) => {
+    statePop._pvId = pvId;
+    const p = PV_BY_ID[pvId];
+    const curStatus = p ? statusOf(p) : null;
+    statePop.querySelectorAll('.state-pick').forEach(btn => {
+      const chk = btn.querySelector('.state-check');
+      if (!chk) return;
+      const on = btn.dataset.state === curStatus;
+      chk.textContent = on ? '●' : '○';
+      chk.classList.toggle('on', on);
+    });
+    statePop.classList.add('open');
+    stateBackdrop.classList.add('open');
+  };
+  statePop.querySelectorAll('.state-pick').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const pvId = statePop._pvId;
+      if (!pvId) { closeStatePop(); return; }
+      const target = btn.dataset.state;
+      window.setPvState(pvId, target);
+      closeStatePop();
     });
   });
 
