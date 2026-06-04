@@ -9,31 +9,30 @@
     X-Frame-Options = "SAMEORIGIN"
     Referrer-Policy = "strict-origin-when-cross-origin"
 
-# Entry point HTML — sempre revalidate. Con l'ETag auto-generato da Netlify
-# le richieste successive ricevono 304 (no body) se il file non è cambiato:
-# costo minimo, ma il browser è sempre forzato a parlare col server.
-# Coprire sia "/" (path richiesto dall'utente) sia "/index.html".
+# Entry point HTML — no-store: Safari/iOS a volte tiene in bfcache la pagina anche
+# con must-revalidate. Con no-store il browser NON è autorizzato a memorizzarla
+# del tutto, quindi è obbligato a scaricarla nuova ad ogni apertura.
 [[headers]]
   for = "/"
   [headers.values]
-    Cache-Control = "public, max-age=0, must-revalidate"
+    Cache-Control = "no-store"
 
 [[headers]]
   for = "/index.html"
   [headers.values]
-    Cache-Control = "public, max-age=0, must-revalidate"
+    Cache-Control = "no-store"
 
-# Dati e manifest — stesso trattamento dell'HTML: must-revalidate per
-# garantire che dopo un deploy il dataset aggiornato arrivi subito.
+# Dati e manifest — stesso trattamento dell'HTML: no-store così dopo un deploy
+# il dataset aggiornato arriva subito su qualunque browser.
 [[headers]]
   for = "/pv_data.json"
   [headers.values]
-    Cache-Control = "public, max-age=0, must-revalidate"
+    Cache-Control = "no-store"
 
 [[headers]]
   for = "/manifest.json"
   [headers.values]
-    Cache-Control = "public, max-age=0, must-revalidate"
+    Cache-Control = "no-store"
 
 # Icone/favicon — cambiano raramente; 1 giorno è un buon compromesso fra
 # riduzione richieste e propagazione di eventuali modifiche.
