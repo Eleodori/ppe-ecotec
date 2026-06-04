@@ -776,7 +776,7 @@ aside {
       </div>
       <div class="sidebar-content">
         <div class="search-row">
-          <input class="search-input" type="search" id="searchInput" placeholder="Cerca per PV, comune, regione…" inputmode="search">
+          <input class="search-input" type="search" id="searchInput" placeholder="Cerca PV, comune… (più PV: 47574, 41839)" inputmode="search">
         </div>
         <div class="filter-bar">
           <button class="chip cluster-chip" id="chipCluster" style="display:none">Cluster ×</button>
@@ -1718,12 +1718,18 @@ function isPvVisibleInList(p) {
   if (f.nearOnly && STATE.position) {
     if (haversine(STATE.position, p) > STATE.radiusKm) return false;
   }
-  if (f.query) {
-    const q = f.query.toLowerCase();
-    const hay = (p.pv+' '+p.comune+' '+p.prov+' '+p.regione+' '+p.indirizzo+' '+p.ragSoc+' '+p.name).toLowerCase();
-    if (!hay.includes(q)) return false;
-  }
+  if (!pvMatchesQuery(p, f.query)) return false;
   return true;
+}
+
+// Match ricerca: supporta più termini separati da virgola (logica OR), così si possono
+// cercare più PV insieme es. "47574, 41839, 47612". Singolo termine = ricerca libera.
+function pvMatchesQuery(p, query) {
+  if (!query) return true;
+  const terms = query.toLowerCase().split(',').map(t => t.trim()).filter(Boolean);
+  if (terms.length === 0) return true;
+  const hay = (p.pv+' '+p.comune+' '+p.prov+' '+p.regione+' '+p.indirizzo+' '+p.ragSoc+' '+p.name).toLowerCase();
+  return terms.some(t => hay.includes(t));
 }
 
 function sortedFilteredPvs() {
@@ -1736,6 +1742,27 @@ function sortedFilteredPvs() {
     list.sort((a,b) => (a.regione+a.comune+a.pv).localeCompare(b.regione+b.comune+b.pv));
   }
   return list;
+}
+
+// Inquadra la mappa sui PV attualmente visibili in seguito a una ricerca.
+function fitMapToSearch() {
+  if (!STATE.map || STATE.view !== 'mappa') return;
+  if (!STATE.filters.query) return; // niente ricerca attiva → non muovere la mappa
+  const matched = PVS.filter(isPvVisibleInList);
+  if (matched.length === 0) { toast('Nessun PV trovato'); return; }
+  STATE._programmaticMove = true;
+  if (matched.length === 1) {
+    const p = matched[0];
+    STATE.map.setView([p.lat, p.lng], Math.max(STATE.map.getZoom(), 14), { animate: true });
+  } else {
+    const lats = matched.map(p => p.lat), lngs = matched.map(p => p.lng);
+    STATE.map.fitBounds([
+      [Math.min(...lats), Math.min(...lngs)],
+      [Math.max(...lats), Math.max(...lngs)]
+    ], { padding: [50, 50], maxZoom: 15, animate: true });
+  }
+  setTimeout(() => { STATE._programmaticMove = false; }, 800);
+  toast(`${matched.length} PV trovati`);
 }
 
 function renderCounters() {
@@ -1766,11 +1793,7 @@ function renderRegionStats() {
     if (e.archivio) continue;
     if (e.sospeso) continue;
     if (f.nearOnly && (!STATE.position || haversine(STATE.position, p) > STATE.radiusKm)) continue;
-    if (f.query) {
-      const q = f.query.toLowerCase();
-      const hay = (p.pv+' '+p.comune+' '+p.prov+' '+p.regione+' '+p.indirizzo+' '+p.ragSoc+' '+p.name).toLowerCase();
-      if (!hay.includes(q)) continue;
-    }
+    if (!pvMatchesQuery(p, f.query)) continue;
     if (!regionMap[p.regione]) regionMap[p.regione] = { soprTodo: 0, instTodo: 0 };
     if (e.soprRichiesto && !e.soprFatto) regionMap[p.regione].soprTodo++;
     if (e.instRichiesta && !e.instFatta) regionMap[p.regione].instTodo++;
@@ -2365,9 +2388,14 @@ async function init() {
     });
   });
 
+  let _searchFitTimer;
   document.getElementById('searchInput').addEventListener('input', e => {
     STATE.filters.query = e.target.value.trim();
-    refreshAllMarkers(); renderList(); renderRegionStats();
+    refreshAllMarkers(); renderList(); renderRegionStats(); saveSettings();
+    // Auto-inquadra la mappa sui risultati quando l'utente smette di digitare,
+    // così i PV cercati (anche più codici separati da virgola) si vedono subito.
+    clearTimeout(_searchFitTimer);
+    _searchFitTimer = setTimeout(() => fitMapToSearch(), 500);
   });
 
   document.getElementById('detailClose').addEventListener('click', closeDetail);
