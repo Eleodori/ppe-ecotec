@@ -331,13 +331,62 @@ aside {
   display: none;
 }
 .state-pop-backdrop.open { display: block; }
+
+/* Mini-editor dati PV (comune, prov, indirizzo, gestore) */
+.edit-pop {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(380px, calc(100vw - 32px));
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px 12px;
+  z-index: 2500;
+  display: none;
+  box-shadow: var(--shadow-lg);
+  max-height: 85vh;
+  overflow-y: auto;
+}
+.edit-pop.open { display: block; }
+.edit-pop .menu-section { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); padding: 4px 4px 10px; }
+.edit-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.edit-field span { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; }
+.edit-field input {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 9px 10px;
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+  font-family: var(--font-sans);
+}
+.edit-field input:focus { border-color: var(--me); }
+.edit-actions { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.edit-actions .btn { flex: 1 1 auto; padding: 9px 10px; font-size: 13px; }
+.edit-actions .btn.ghost-undo { flex-basis: 100%; margin-bottom: 4px; }
+.edit-pop-backdrop {
+  position: fixed; inset: 0; z-index: 2499;
+  background: rgba(0,0,0,.3);
+  display: none;
+}
+.edit-pop-backdrop.open { display: block; }
 .task-badge.state-trigger {
   cursor: pointer;
   transition: filter .15s, transform .15s;
+  border: 1px solid rgba(255,255,255,0.25);
+  box-shadow: 0 1px 4px rgba(0,0,0,.35);
+  padding-right: 8px;
 }
 .task-badge.state-trigger:hover { filter: brightness(1.15); }
 .task-badge.state-trigger:active { transform: scale(.97); }
-.state-caret { font-size: 9px; margin-left: 4px; opacity: .8; }
+.state-caret {
+  font-size: 11px;
+  margin-left: 6px;
+  font-weight: 700;
+  opacity: .9;
+}
 
 /* === Region stats === */
 .region-stats {
@@ -911,6 +960,20 @@ aside {
     <button class="state-pick" data-state="sospeso"><span class="state-dot" style="background:var(--sospeso)"></span><span>Sospeso</span><span class="state-check">○</span></button>
     <hr>
     <button class="state-pick" data-state="auto"><span class="state-dot" style="background:transparent;border:1px dashed var(--text-muted)"></span><span>Ripristina (master)</span></button>
+  </div>
+
+  <div class="edit-pop-backdrop" id="editPopBackdrop"></div>
+  <div class="edit-pop" id="editPop">
+    <div class="menu-section">Modifica dati PV</div>
+    <label class="edit-field"><span>Comune</span><input type="text" id="editComune" autocomplete="off"></label>
+    <label class="edit-field"><span>Provincia</span><input type="text" id="editProv" maxlength="2" autocomplete="off"></label>
+    <label class="edit-field"><span>Indirizzo</span><input type="text" id="editIndirizzo" autocomplete="off"></label>
+    <label class="edit-field"><span>Gestore</span><input type="text" id="editRagSoc" autocomplete="off"></label>
+    <div class="edit-actions">
+      <button class="btn ghost-undo" id="editReset">↶ Ripristina master</button>
+      <button class="btn" id="editCancel">Annulla</button>
+      <button class="btn primary" id="editSave">Salva</button>
+    </div>
   </div>
 
   <div class="detail-sheet" id="detailSheet">
@@ -1729,7 +1792,8 @@ function pvMatchesQuery(p, query) {
   if (!query) return true;
   const terms = query.toLowerCase().split(',').map(t => t.trim()).filter(Boolean);
   if (terms.length === 0) return true;
-  const hay = (p.pv+' '+p.comune+' '+p.prov+' '+p.regione+' '+p.indirizzo+' '+p.ragSoc+' '+p.name).toLowerCase();
+  const d = pvDisplay(p);
+  const hay = (p.pv+' '+d.comune+' '+d.prov+' '+p.regione+' '+d.indirizzo+' '+d.ragSoc+' '+p.name).toLowerCase();
   return terms.some(t => hay.includes(t));
 }
 
@@ -1783,6 +1847,19 @@ function renderCounters() {
   document.getElementById('c-inst-total').textContent = instDone + instTodo;
 }
 
+// Restituisce i campi anagrafici del PV con override locale (userState.fields) se presente,
+// così l'utente può correggere comune/prov/indirizzo/gestore senza toccare il master.
+function pvDisplay(p) {
+  const us = STATE.userState[p.pv] || {};
+  const f = us.fields || {};
+  return {
+    comune: f.comune || p.comune,
+    prov: f.prov || p.prov,
+    indirizzo: f.indirizzo || p.indirizzo,
+    ragSoc: f.ragSoc || p.ragSoc,
+  };
+}
+
 function renderRegionStats() {
   const el = document.getElementById('regionStats');
   if (!el) return;
@@ -1826,8 +1903,8 @@ function renderList() {
       return `<div class="list-item ${STATE.selectedPv === p.pv ? 'selected' : ''}" data-pv="${p.pv}">
         <span class="dot ${st}"></span>
         <div class="li-body">
-          <div class="li-row1"><span class="li-pv mono">${p.pv}</span><span class="li-comune">${p.comune}${noteHint}</span></div>
-          <div class="li-row2">${p.regione} · ${p.indirizzo}</div>
+          <div class="li-row1"><span class="li-pv mono">${p.pv}</span><span class="li-comune">${pvDisplay(p).comune}${noteHint}</span></div>
+          <div class="li-row2">${p.regione} · ${pvDisplay(p).indirizzo}</div>
         </div>
         <div class="li-dist mono">${dist}</div>
       </div>`;
@@ -1891,7 +1968,8 @@ function renderDetail(p) {
   document.getElementById('detailPv').textContent = `PV · ${p.pv}`;
   document.getElementById('detailBadge').innerHTML =
     `<button class="task-badge ${status} state-trigger" onclick="openStatePicker(${p.pv})" title="Cambia stato">${BADGE_LABEL[status] || status} <span class="state-caret">▾</span></button>`;
-  document.getElementById('detailTitle').textContent = `${p.comune} (${p.prov})`;
+  const disp = pvDisplay(p);
+  document.getElementById('detailTitle').textContent = `${disp.comune} (${disp.prov})`;
 
   // Timeline
   const tlEl = document.getElementById('detailTimeline');
@@ -1933,9 +2011,9 @@ function renderDetail(p) {
   body.innerHTML = `
     ${dist ? `<div class="detail-row"><div class="label">Distanza</div><div class="val mono">${dist} in linea d'aria</div></div>` : ''}
     <div class="detail-row"><div class="label">Regione</div><div class="val">${p.regione}</div></div>
-    <div class="detail-row"><div class="label">Indirizzo</div><div class="val">${p.indirizzo}</div></div>
-    <div class="detail-row"><div class="label">Su Google</div><div class="val">${p.name} — ${p.addrGoogle}</div></div>
-    ${p.ragSoc ? `<div class="detail-row"><div class="label">Gestore</div><div class="val">${p.ragSoc}</div></div>` : ''}
+    <div class="detail-row"><div class="label">Indirizzo</div><div class="val">${disp.indirizzo || '<em style="color:var(--text-muted)">— (tocca ✏ per inserire)</em>'}</div></div>
+    ${p.addrGoogle ? `<div class="detail-row"><div class="label">Su Google</div><div class="val">${p.name} — ${p.addrGoogle}</div></div>` : ''}
+    ${disp.ragSoc ? `<div class="detail-row"><div class="label">Gestore</div><div class="val">${disp.ragSoc}</div></div>` : ''}
     ${p.phone ? `<div class="detail-row"><div class="label">Telefono</div><div class="val"><a href="tel:${p.phone.replace(/\s/g,'')}">${p.phone}</a></div></div>` : ''}
     ${p.attivita_std ? `<div class="detail-row"><div class="label">Attività</div><div class="val">${p.attivita_std}</div></div>` : ''}
     ${p.note ? `<div class="detail-row"><div class="label">Note prog.</div><div class="val">${p.note}</div></div>` : ''}
@@ -1967,6 +2045,7 @@ function renderDetail(p) {
   const acts = document.getElementById('detailActions');
   const btns = [];
   btns.push(`<a class="btn navigate" href="${ggUrl}" target="_blank" rel="noopener">▸ Naviga</a>`);
+  btns.push(`<button class="btn" onclick="openPvEditor(${p.pv})">✏ Modifica dati</button>`);
   if (showSoprBtn) btns.push(`<button class="btn primary-sopr" onclick="markSopralluogoFatto(${p.pv})">✓ Sopralluogo fatto</button>`);
   if (showPlanimBtn) btns.push(`<button class="btn primary-inst" onclick="markPlanimetriaRicevuta(${p.pv})">📐 Planimetria ricevuta</button>`);
   if (showInstBtn) btns.push(`<button class="btn primary-inst" onclick="markInstallazioneFatta(${p.pv})">✓ Installazione fatta</button>`);
@@ -2086,6 +2165,41 @@ window.setPvState = _safeAction('setPvState', (pvId, p, target) => {
   STATE.userState[pvId] = next;
   _afterAction(pvId, p, `PV ${pvId} — stato: ${BADGE_LABEL[target] || target}`);
 });
+
+// Salva override locali di comune/prov/indirizzo/ragSoc. Passare null/'' come fields
+// resetta gli override e ripristina i valori master.
+window.setPvFields = _safeAction('setPvFields', (pvId, p, fields) => {
+  const cur = STATE.userState[pvId] || {};
+  const next = { ...cur, updatedAt: Date.now() };
+  if (!fields) {
+    delete next.fields;
+  } else {
+    const clean = {};
+    ['comune','prov','indirizzo','ragSoc'].forEach(k => {
+      const v = (fields[k] || '').trim();
+      if (v && v !== p[k]) clean[k] = v;
+    });
+    if (Object.keys(clean).length === 0) delete next.fields;
+    else next.fields = clean;
+  }
+  STATE.userState[pvId] = next;
+  _afterAction(pvId, p, `PV ${pvId} — dati aggiornati`);
+});
+
+window.openPvEditor = (pvId) => {
+  const p = PV_BY_ID[pvId];
+  if (!p) return;
+  const disp = pvDisplay(p);
+  document.getElementById('editComune').value = disp.comune || '';
+  document.getElementById('editProv').value = disp.prov || '';
+  document.getElementById('editIndirizzo').value = disp.indirizzo || '';
+  document.getElementById('editRagSoc').value = disp.ragSoc || '';
+  const ep = document.getElementById('editPop');
+  const eb = document.getElementById('editPopBackdrop');
+  ep._pvId = pvId;
+  ep.classList.add('open');
+  eb.classList.add('open');
+};
 
 function _doRecenter(lat, lng) {
   STATE._programmaticMove = true;
@@ -2387,6 +2501,31 @@ async function init() {
       window.setPvState(pvId, target);
       closeStatePop();
     });
+  });
+
+  // Editor anagrafica PV (comune/prov/indirizzo/gestore)
+  const editPop = document.getElementById('editPop');
+  const editBackdrop = document.getElementById('editPopBackdrop');
+  const closeEditPop = () => { editPop.classList.remove('open'); editBackdrop.classList.remove('open'); editPop._pvId = null; };
+  editBackdrop.addEventListener('click', closeEditPop);
+  document.getElementById('editCancel').addEventListener('click', closeEditPop);
+  document.getElementById('editSave').addEventListener('click', () => {
+    const pvId = editPop._pvId;
+    if (!pvId) { closeEditPop(); return; }
+    window.setPvFields(pvId, {
+      comune: document.getElementById('editComune').value,
+      prov: document.getElementById('editProv').value.toUpperCase(),
+      indirizzo: document.getElementById('editIndirizzo').value,
+      ragSoc: document.getElementById('editRagSoc').value,
+    });
+    closeEditPop();
+  });
+  document.getElementById('editReset').addEventListener('click', () => {
+    const pvId = editPop._pvId;
+    if (!pvId) { closeEditPop(); return; }
+    if (!confirm('Ripristinare i dati dal master? Le tue modifiche locali a comune/indirizzo/gestore verranno perse.')) return;
+    window.setPvFields(pvId, null);
+    closeEditPop();
   });
 
   let _searchFitTimer;
