@@ -618,6 +618,78 @@ aside {
   font-weight: 600;
 }
 
+/* === Piano giornata === */
+.plan-pill {
+  position: absolute;
+  left: 10px;
+  bottom: calc(70px + var(--safe-bot));
+  z-index: 450;
+  background: var(--me);
+  color: white;
+  border-radius: 100px;
+  padding: 9px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: var(--shadow-lg);
+  display: none;
+  align-items: center;
+  gap: 6px;
+}
+.plan-pill.show { display: flex; }
+@media (min-width: 900px) { .plan-pill { bottom: 24px; } }
+.plan-pop {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(420px, calc(100vw - 24px));
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  z-index: 2500;
+  display: none;
+  box-shadow: var(--shadow-lg);
+  max-height: 80vh;
+  overflow-y: auto;
+}
+.plan-pop.open { display: block; }
+.plan-pop .menu-section { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); padding: 6px 8px 8px; }
+.plan-stop {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 8px;
+  border-bottom: 1px solid var(--surface-2);
+  cursor: pointer;
+}
+.plan-stop:last-of-type { border-bottom: none; }
+.plan-stop-num {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--me); color: white;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  display: grid; place-items: center;
+  flex-shrink: 0;
+}
+.plan-stop.done .plan-stop-num { background: var(--done); color: #0a0a0a; }
+.plan-stop-body { flex: 1; min-width: 0; }
+.plan-stop-title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.plan-stop.done .plan-stop-title { text-decoration: line-through; color: var(--text-muted); }
+.plan-stop-sub { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.plan-stop-remove {
+  width: 30px; height: 30px; border-radius: 6px;
+  display: grid; place-items: center;
+  color: var(--text-muted); font-size: 15px;
+  flex-shrink: 0;
+}
+.plan-stop-remove:active { background: var(--surface-2); color: var(--sospeso); }
+.plan-actions { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.plan-actions .btn { padding: 11px 10px; font-size: 13px; }
+.plan-empty { padding: 18px 8px; font-size: 13px; color: var(--text-muted); text-align: center; }
+.plan-pop-backdrop {
+  position: fixed; inset: 0; z-index: 2499;
+  background: rgba(0,0,0,.3);
+  display: none;
+}
+.plan-pop-backdrop.open { display: block; }
+
 .toast {
   position: fixed; bottom: calc(80px + var(--safe-bot)); left: 50%;
   transform: translateX(-50%) translateY(20px);
@@ -841,6 +913,7 @@ aside {
   <main>
     <div id="map"></div>
     <div class="first-tip" id="firstTip"><strong>Tocca un pin sulla mappa</strong><br>o usa 📍 per centrarti.</div>
+    <button class="plan-pill" id="planPill">📅 <span id="planPillLabel">0 tappe</span></button>
 
     <aside id="sidebar">
       <div class="sidebar-handle" id="sidebarHandle">
@@ -993,6 +1066,13 @@ aside {
     <button class="state-pick" data-state="sospeso"><span class="state-dot" style="background:var(--sospeso)"></span><span>Sospeso</span><span class="state-check">○</span></button>
     <hr>
     <button class="state-pick" data-state="auto"><span class="state-dot" style="background:transparent;border:1px dashed var(--text-muted)"></span><span>Ripristina (master)</span></button>
+  </div>
+
+  <div class="plan-pop-backdrop" id="planPopBackdrop"></div>
+  <div class="plan-pop" id="planPop">
+    <div class="menu-section">Piano giornata</div>
+    <div id="planStops"></div>
+    <div class="plan-actions" id="planActions"></div>
   </div>
 
   <div class="edit-pop-backdrop" id="editPopBackdrop"></div>
@@ -1244,11 +1324,12 @@ function dbscan(pvs, epsKm, minPts) {
   return { clusters, noise };
 }
 
-function greedyTSP(distMeters) {
+function greedyTSP(distMeters, startIdx = 0) {
   const n = distMeters.length;
-  if (n <= 1) return 0;
-  const visited = new Set([0]);
-  let cur = 0, total = 0;
+  if (n <= 1) return { km: 0, order: n === 1 ? [0] : [] };
+  const order = [startIdx];
+  const visited = new Set([startIdx]);
+  let cur = startIdx, total = 0;
   while (visited.size < n) {
     let best = -1, bestD = Infinity;
     for (let j = 0; j < n; j++) {
@@ -1258,10 +1339,11 @@ function greedyTSP(distMeters) {
     }
     if (best === -1) break;
     visited.add(best);
+    order.push(best);
     total += bestD;
     cur = best;
   }
-  return total / 1000;
+  return { km: total / 1000, order };
 }
 
 function buildHaversineMatrix(pvs) {
@@ -1320,7 +1402,7 @@ async function renderClusters() {
   const results = sortedClusters.map((cluster, i) => {
     const distMatrix = matrices[i] || buildHaversineMatrix(cluster);
     const orsUsed = !!matrices[i];
-    const kmEst = greedyTSP(distMatrix);
+    const kmEst = greedyTSP(distMatrix).km;
     const income = clusterPotential(cluster);
     const eurPerKm = kmEst > 0.5 ? income / kmEst : income;
     return { cluster, kmEst, income, eurPerKm, orsUsed };
@@ -1350,6 +1432,7 @@ async function renderClusters() {
         <span class="cluster-sep">·</span><span>${kmStr}${approx}</span>
       </div>
       <button class="cluster-show-btn" onclick="applyClusterFilter(${JSON.stringify(pvIds)})">Mostra sulla mappa →</button>
+      <button class="cluster-show-btn" style="margin-top:6px" onclick="planFromCluster(${JSON.stringify(pvIds)})">📅 Pianifica questo giro</button>
     </div>`;
   });
 
@@ -1386,6 +1469,144 @@ function clearClusterFilter() {
   renderCounters();
   renderRegionStats();
   renderList();
+}
+
+// === Piano giornata ===
+// Lista ordinata di tappe (pv id). Si riempie dal dettaglio PV o da un cluster,
+// si ottimizza col TSP partendo dalla posizione GPS, si apre in Google Maps.
+
+function planHas(pvId) { return STATE.dayPlan.includes(pvId); }
+
+window.togglePlanPv = (pvId) => {
+  const idx = STATE.dayPlan.indexOf(pvId);
+  if (idx >= 0) {
+    STATE.dayPlan.splice(idx, 1);
+    toast(`PV ${pvId} tolto dal piano`);
+  } else {
+    STATE.dayPlan.push(pvId);
+    toast(`PV ${pvId} aggiunto al piano (${STATE.dayPlan.length} tappe)`);
+  }
+  saveDayPlan();
+  renderPlanUI();
+  if (STATE.selectedPv === pvId && PV_BY_ID[pvId]) renderDetail(PV_BY_ID[pvId]);
+};
+
+window.planFromCluster = (pvIds) => {
+  STATE.dayPlan = [...pvIds];
+  saveDayPlan();
+  renderPlanUI();
+  switchView('mappa');
+  openPlanSheet();
+  optimizePlan(); // ordina subito (async, aggiorna la lista quando pronto)
+};
+
+function renderPlanUI() {
+  const pill = document.getElementById('planPill');
+  const lbl = document.getElementById('planPillLabel');
+  if (!pill) return;
+  const n = STATE.dayPlan.length;
+  pill.classList.toggle('show', n > 0);
+  if (lbl) lbl.textContent = n === 1 ? '1 tappa' : `${n} tappe`;
+}
+
+function openPlanSheet() {
+  renderPlanSheet();
+  document.getElementById('planPop').classList.add('open');
+  document.getElementById('planPopBackdrop').classList.add('open');
+}
+function closePlanSheet() {
+  document.getElementById('planPop').classList.remove('open');
+  document.getElementById('planPopBackdrop').classList.remove('open');
+}
+
+function renderPlanSheet() {
+  const stopsEl = document.getElementById('planStops');
+  const actsEl = document.getElementById('planActions');
+  // Scarta eventuali id non più presenti nel dataset
+  STATE.dayPlan = STATE.dayPlan.filter(id => PV_BY_ID[id]);
+  if (STATE.dayPlan.length === 0) {
+    stopsEl.innerHTML = '<div class="plan-empty">Nessuna tappa.<br>Aggiungi PV dal dettaglio (📅) o pianifica un giro dalla Dash.</div>';
+    actsEl.innerHTML = '';
+    return;
+  }
+  let prev = STATE.position;
+  stopsEl.innerHTML = STATE.dayPlan.map((id, i) => {
+    const p = PV_BY_ID[id];
+    const d = pvDisplay(p);
+    const done = statusOf(p) === 'completato';
+    const dist = prev ? fmtDist(haversine(prev, p)) : '';
+    prev = p;
+    return `<div class="plan-stop${done ? ' done' : ''}" data-pv="${id}">
+      <span class="plan-stop-num">${i + 1}</span>
+      <div class="plan-stop-body">
+        <div class="plan-stop-title">${d.comune} <span class="mono" style="font-weight:400;font-size:11px">· ${id}</span></div>
+        <div class="plan-stop-sub">${d.indirizzo || p.regione}${dist ? ' · ' + dist : ''}</div>
+      </div>
+      <button class="plan-stop-remove" data-remove="${id}" title="Rimuovi tappa">✕</button>
+    </div>`;
+  }).join('');
+  stopsEl.querySelectorAll('.plan-stop').forEach(row => {
+    row.addEventListener('click', e => {
+      if (e.target.closest('[data-remove]')) return;
+      closePlanSheet();
+      selectPv(parseInt(row.dataset.pv));
+    });
+  });
+  stopsEl.querySelectorAll('[data-remove]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      window.togglePlanPv(parseInt(btn.dataset.remove));
+      renderPlanSheet();
+    });
+  });
+  actsEl.innerHTML = `
+    <button class="btn" id="planOptimize">🧭 Ottimizza ordine${STATE.position ? ' (da qui)' : ''}</button>
+    <button class="btn navigate" id="planOpenMaps">▸ Apri percorso in Google Maps</button>
+    <button class="btn ghost-undo" id="planClear">🗑 Svuota piano</button>`;
+  document.getElementById('planOptimize').addEventListener('click', optimizePlan);
+  document.getElementById('planOpenMaps').addEventListener('click', openPlanInMaps);
+  document.getElementById('planClear').addEventListener('click', () => {
+    if (!confirm('Svuotare il piano giornata?')) return;
+    STATE.dayPlan = [];
+    saveDayPlan();
+    renderPlanUI();
+    renderPlanSheet();
+  });
+}
+
+// Riordina le tappe col TSP. Se c'è il GPS, parte dalla posizione attuale
+// (punto fittizio in testa alla matrice, poi rimosso dall'ordine).
+async function optimizePlan() {
+  const stops = STATE.dayPlan.map(id => PV_BY_ID[id]).filter(Boolean);
+  if (stops.length < 2) return;
+  const points = STATE.position
+    ? [{ lat: STATE.position.lat, lng: STATE.position.lng }, ...stops]
+    : stops;
+  const matrix = (await callDistanceMatrix(points)) || buildHaversineMatrix(points);
+  const { order } = greedyTSP(matrix, 0);
+  const ordered = STATE.position
+    ? order.filter(i => i > 0).map(i => stops[i - 1])
+    : order.map(i => stops[i]);
+  STATE.dayPlan = ordered.map(p => p.pv);
+  saveDayPlan();
+  renderPlanSheet();
+  toast('Ordine ottimizzato');
+}
+
+// Apre Google Maps con il percorso multi-tappa. Limite Google: ~9 waypoint
+// + destinazione; se il piano è più lungo apriamo le prime 10 tappe.
+function openPlanInMaps() {
+  const stops = STATE.dayPlan.map(id => PV_BY_ID[id]).filter(Boolean);
+  if (stops.length === 0) return;
+  const MAX = 10;
+  const batch = stops.slice(0, MAX);
+  if (stops.length > MAX) toast(`Apro le prime ${MAX} tappe (Google Maps non supporta di più)`, 3000);
+  const fmt = p => `${p.lat},${p.lng}`;
+  const dest = batch[batch.length - 1];
+  const waypoints = batch.slice(0, -1).map(fmt).join('|');
+  let url = `https://www.google.com/maps/dir/?api=1&destination=${fmt(dest)}&travelmode=driving`;
+  if (waypoints) url += `&waypoints=${encodeURIComponent(waypoints)}`;
+  if (STATE.position) url += `&origin=${STATE.position.lat},${STATE.position.lng}`;
+  window.open(url, '_blank', 'noopener');
 }
 
 function renderEconomicBlock() {
@@ -1436,6 +1657,7 @@ const STATE = {
   syncError: null,
   _syncTimer: null,
   _syncBusy: false,
+  dayPlan: [],
 };
 
 const DBG = {
@@ -1651,7 +1873,16 @@ async function loadFromStorage() {
 
   if (!Array.isArray(STATE.filters.regions)) STATE.filters.regions = [];
 
+  try {
+    const plan = JSON.parse(await Store.get('dayPlan') || '[]');
+    if (Array.isArray(plan)) STATE.dayPlan = plan.filter(id => Number.isInteger(id));
+  } catch(e) {}
+
   STATE.firstTipSeen = !!(await Store.get('firstTipSeen'));
+}
+
+function saveDayPlan() {
+  Store.set('dayPlan', JSON.stringify(STATE.dayPlan));
 }
 
 function dismissFirstTip() {
@@ -2188,6 +2419,7 @@ function renderDetail(p) {
   const acts = document.getElementById('detailActions');
   const btns = [];
   btns.push(`<a class="btn navigate" href="${ggUrl}" target="_blank" rel="noopener">▸ Naviga</a>`);
+  btns.push(`<button class="btn" onclick="togglePlanPv(${p.pv})">${planHas(p.pv) ? '📅 Togli dal piano' : '📅 Aggiungi al piano'}</button>`);
   btns.push(`<button class="btn" onclick="openPvEditor(${p.pv})">✏ Modifica dati</button>`);
   if (showSoprBtn) btns.push(`<button class="btn primary-sopr" onclick="markSopralluogoFatto(${p.pv})">✓ Sopralluogo fatto</button>`);
   if (showPlanimBtn) btns.push(`<button class="btn primary-inst" onclick="markPlanimetriaRicevuta(${p.pv})">📐 Planimetria ricevuta</button>`);
@@ -2745,6 +2977,11 @@ async function init() {
   window.addEventListener('resize', reinvalidateMap);
   window.addEventListener('orientationchange', reinvalidateMap);
   if (window.visualViewport) window.visualViewport.addEventListener('resize', reinvalidateMap);
+
+  // Piano giornata
+  document.getElementById('planPill').addEventListener('click', openPlanSheet);
+  document.getElementById('planPopBackdrop').addEventListener('click', closePlanSheet);
+  renderPlanUI();
 
   // Sync multi-dispositivo: stato menu + giro completo all'avvio e quando
   // l'app torna in primo piano (rientro da background su mobile).
