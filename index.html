@@ -1036,6 +1036,7 @@ aside {
         <button data-r="50">50km</button>
       </div>
     </div>
+    <button id="btnManualPos">📍 Imposta posizione manualmente</button>
     <hr>
     <div class="menu-section">Sincronizzazione</div>
     <div id="syncSection"></div>
@@ -2135,7 +2136,7 @@ function toast(msg, ms=1800) {
 
 // Build stamp visibile all'utente per capire se il browser sta servendo la versione
 // vecchia dalla cache. Bumpare ad ogni release significativa.
-const APP_VERSION = '2026-06-09.3';
+const APP_VERSION = '2026-06-09.4';
 
 const MAP_THEMES = {
   light: {
@@ -2199,8 +2200,20 @@ function initMap() {
     m.addTo(STATE.map);
     STATE.markers[p.pv] = m;
   }
-  STATE.map.on('click', () => {
+  STATE.map.on('click', (e) => {
     if (_lasso.active) return;
+    if (STATE._manualPosMode) {
+      // Posizione impostata a mano (per Mac/desktop senza GPS): si comporta
+      // come un fix GPS per distanze, filtro 'vicino' e ottimizzazione giro.
+      STATE._manualPosMode = false;
+      STATE.position = { lat: e.latlng.lat, lng: e.latlng.lng, accuracy: 0, manual: true };
+      updateMeMarker();
+      refreshAllMarkers();
+      renderList();
+      renderRegionStats();
+      toast('Posizione impostata 📍 (manuale)');
+      return;
+    }
     if (Date.now() - _lastMarkerClickMs < 350) return;
     closeDetail();
   });
@@ -2819,8 +2832,12 @@ function startGeolocation(forceCenter=false, lowAccuracy=false) {
         startGeolocation(forceCenter, true);
       } else if (err.code === 3) { // TIMEOUT
         toast('GPS: tempo scaduto. Riprova all\'aperto o controlla che la Posizione sia attiva.', 4500);
+      } else if (/Mac/.test(navigator.platform || '')) {
+        // Su Mac la posizione viene dal WiFi via Servizi di localizzazione di
+        // sistema: se sono spenti per il browser, il permesso web non basta.
+        toast('Posizione non disponibile. Su Mac: Impostazioni di Sistema → Privacy e Sicurezza → Servizi di localizzazione → attiva per il browser (e accendi il WiFi). In alternativa: menu ⋮ → Imposta posizione manualmente.', 8000);
       } else {
-        toast('GPS non disponibile al momento. Riprova tra poco.', 4000);
+        toast('GPS non disponibile. In alternativa: menu ⋮ → Imposta posizione manualmente.', 5000);
       }
     },
     lowAccuracy
@@ -3116,6 +3133,12 @@ async function init() {
   renderThemeGrid();
   document.querySelectorAll('#themeGrid button').forEach(b => {
     b.addEventListener('click', () => setMapTheme(b.dataset.theme));
+  });
+  document.getElementById('btnManualPos').addEventListener('click', () => {
+    menuPop.classList.remove('open');
+    switchView('mappa');
+    STATE._manualPosMode = true;
+    toast('Tocca la mappa nel punto in cui ti trovi', 4000);
   });
   document.getElementById('btnExportJson').addEventListener('click', () => { exportJson(); menuPop.classList.remove('open'); });
   document.getElementById('btnExportCsv').addEventListener('click', () => { exportCsv(); menuPop.classList.remove('open'); });
