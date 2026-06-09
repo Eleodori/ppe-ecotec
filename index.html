@@ -690,6 +690,33 @@ aside {
 }
 .plan-pop-backdrop.open { display: block; }
 
+/* Lasso: selezione area sulla mappa */
+.lasso-btn {
+  position: absolute;
+  right: 10px;
+  bottom: calc(70px + var(--safe-bot));
+  z-index: 450;
+  width: 46px; height: 46px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 20px;
+  box-shadow: var(--shadow-lg);
+  display: grid; place-items: center;
+}
+.lasso-btn.active {
+  background: var(--me);
+  color: white;
+  border-color: var(--me);
+  animation: lasso-pulse 1.5s ease-in-out infinite;
+}
+@keyframes lasso-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(59,130,246,.5); }
+  50% { box-shadow: 0 0 0 10px rgba(59,130,246,0); }
+}
+@media (min-width: 900px) { .lasso-btn { bottom: 24px; right: 404px; } }
+
 .toast {
   position: fixed; bottom: calc(80px + var(--safe-bot)); left: 50%;
   transform: translateX(-50%) translateY(20px);
@@ -914,6 +941,7 @@ aside {
     <div id="map"></div>
     <div class="first-tip" id="firstTip"><strong>Tocca un pin sulla mappa</strong><br>o usa 📍 per centrarti.</div>
     <button class="plan-pill" id="planPill">📅 <span id="planPillLabel">0 tappe</span></button>
+    <button class="lasso-btn" id="lassoBtn" title="Seleziona PV disegnando un'area">⬚</button>
 
     <aside id="sidebar">
       <div class="sidebar-handle" id="sidebarHandle">
@@ -1633,6 +1661,102 @@ function copyPlanList() {
   copyTextSafe(text, 'Lista PV copiata');
 }
 
+// === Lasso: selezione PV disegnando un'area sulla mappa ===
+// In modalità lasso il pan della mappa è disabilitato: il dito traccia un
+// perimetro e al rilascio tutti i PV "da fare" dentro l'area entrano nel piano.
+const _lasso = { active: false, drawing: false, points: [], line: null };
+
+function toggleLasso(force) {
+  const on = force != null ? force : !_lasso.active;
+  _lasso.active = on;
+  _lasso.drawing = false;
+  document.getElementById('lassoBtn').classList.toggle('active', on);
+  const mapEl = document.getElementById('map');
+  if (on) {
+    STATE.map.dragging.disable();
+    STATE.map.touchZoom.disable();
+    mapEl.style.touchAction = 'none';
+    mapEl.style.cursor = 'crosshair';
+    toast('Disegna un cerchio attorno ai PV da pianificare', 3000);
+  } else {
+    STATE.map.dragging.enable();
+    STATE.map.touchZoom.enable();
+    mapEl.style.touchAction = '';
+    mapEl.style.cursor = '';
+    if (_lasso.line) { STATE.map.removeLayer(_lasso.line); _lasso.line = null; }
+    _lasso.points = [];
+  }
+}
+
+function initLasso() {
+  const mapEl = document.getElementById('map');
+  document.getElementById('lassoBtn').addEventListener('click', () => toggleLasso());
+
+  mapEl.addEventListener('pointerdown', e => {
+    if (!_lasso.active) return;
+    e.preventDefault();
+    try { mapEl.setPointerCapture(e.pointerId); } catch {}
+    _lasso.drawing = true;
+    _lasso.points = [STATE.map.mouseEventToLatLng(e)];
+    if (_lasso.line) STATE.map.removeLayer(_lasso.line);
+    _lasso.line = L.polyline(_lasso.points, { color: '#3b82f6', weight: 2.5, dashArray: '6 4' }).addTo(STATE.map);
+  });
+
+  mapEl.addEventListener('pointermove', e => {
+    if (!_lasso.active || !_lasso.drawing) return;
+    e.preventDefault();
+    const ll = STATE.map.mouseEventToLatLng(e);
+    const last = _lasso.points[_lasso.points.length - 1];
+    const a = STATE.map.latLngToContainerPoint(last);
+    const b = STATE.map.latLngToContainerPoint(ll);
+    if (Math.hypot(a.x - b.x, a.y - b.y) < 5) return; // throttle per non accumulare punti inutili
+    _lasso.points.push(ll);
+    _lasso.line.setLatLngs(_lasso.points);
+  });
+
+  const finish = e => {
+    if (!_lasso.active || !_lasso.drawing) return;
+    _lasso.drawing = false;
+    finishLasso();
+  };
+  mapEl.addEventListener('pointerup', finish);
+  mapEl.addEventListener('pointercancel', finish);
+}
+
+function pointInPolygon(pt, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].lng, yi = poly[i].lat;
+    const xj = poly[j].lng, yj = poly[j].lat;
+    if (((yi > pt.lat) !== (yj > pt.lat)) &&
+        (pt.lng < (xj - xi) * (pt.lat - yi) / (yj - yi) + xi)) inside = !inside;
+  }
+  return inside;
+}
+
+function finishLasso() {
+  const pts = _lasso.points;
+  toggleLasso(false); // pulisce la linea e riabilita il pan
+  if (pts.length < 3) { toast('Area troppo piccola, riprova'); return; }
+  let added = 0, skipped = 0;
+  for (const p of PVS) {
+    if (!pointInPolygon(p, pts)) continue;
+    if (!isPvVisibleInList(p)) continue;
+    const st = statusOf(p);
+    // Nel piano entrano solo i PV lavorabili: da fare sopralluogo o installazione
+    if (st !== 'sopr-todo' && st !== 'inst-todo') { skipped++; continue; }
+    if (!STATE.dayPlan.includes(p.pv)) { STATE.dayPlan.push(p.pv); added++; }
+  }
+  if (added === 0) {
+    toast(skipped > 0 ? 'Nell\'area solo PV fatti/attesa/sospesi' : 'Nessun PV nell\'area', 2500);
+    return;
+  }
+  saveDayPlan();
+  renderPlanUI();
+  toast(`${added} PV aggiunti al piano (${STATE.dayPlan.length} tappe)`, 2500);
+  openPlanSheet();
+}
+
 // Riordina le tappe col TSP. Se c'è il GPS, parte dalla posizione attuale
 // (punto fittizio in testa alla matrice, poi rimosso dall'ordine).
 async function optimizePlan() {
@@ -2011,7 +2135,7 @@ function toast(msg, ms=1800) {
 
 // Build stamp visibile all'utente per capire se il browser sta servendo la versione
 // vecchia dalla cache. Bumpare ad ogni release significativa.
-const APP_VERSION = '2026-06-09.2';
+const APP_VERSION = '2026-06-09.3';
 
 const MAP_THEMES = {
   light: {
@@ -2064,6 +2188,7 @@ function initMap() {
     const m = L.circleMarker([p.lat, p.lng], { ...markerStyle(p), bubblingMouseEvents: false });
     m._pv = p.pv;
     m.on('click', e => {
+      if (_lasso.active) return; // in modalità lasso i tap servono a disegnare
       _lastMarkerClickMs = Date.now();
       L.DomEvent.stopPropagation(e);
       selectPv(p.pv);
@@ -2075,6 +2200,7 @@ function initMap() {
     STATE.markers[p.pv] = m;
   }
   STATE.map.on('click', () => {
+    if (_lasso.active) return;
     if (Date.now() - _lastMarkerClickMs < 350) return;
     closeDetail();
   });
@@ -3050,10 +3176,11 @@ async function init() {
   window.addEventListener('orientationchange', reinvalidateMap);
   if (window.visualViewport) window.visualViewport.addEventListener('resize', reinvalidateMap);
 
-  // Piano giornata
+  // Piano giornata + lasso di selezione
   document.getElementById('planPill').addEventListener('click', openPlanSheet);
   document.getElementById('planPopBackdrop').addEventListener('click', closePlanSheet);
   renderPlanUI();
+  initLasso();
 
   // Sync multi-dispositivo: stato menu + giro completo all'avvio e quando
   // l'app torna in primo piano (rientro da background su mobile).
