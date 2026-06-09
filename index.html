@@ -1625,16 +1625,24 @@ function renderPlanSheet() {
     actsEl.innerHTML = '';
     return;
   }
-  // Totale del giro in linea d'aria (i km stradali precisi arrivano dal toast
-  // di 'Ottimizza ordine' che usa la matrice ORS)
+  // Riga riepilogo: km su strada se l'ordine attuale è stato ottimizzato
+  // (la stima resta valida finché il piano non cambia), altrimenti linea
+  // d'aria. In più il numero di link Google Maps che verranno generati.
   let totKm = 0, prevTot = STATE.position;
   for (const id of STATE.dayPlan) {
     const p = PV_BY_ID[id];
     if (prevTot) totKm += haversine(prevTot, p);
     prevTot = p;
   }
+  const planSig = STATE.dayPlan.join(',');
+  const road = STATE._planRoadKm;
+  const kmLabel = (road && road.sig === planSig)
+    ? `≈ ${Math.round(road.km)} km ${road.fromOrs ? 'su strada' : 'stimati'}`
+    : `≈ ${Math.round(totKm)} km in linea d'aria`;
+  const nLinksTot = buildPlanLinks().length;
+  const linksLabel = nLinksTot === 1 ? '1 link Maps' : `${nLinksTot} link Maps`;
   let prev = STATE.position;
-  stopsEl.innerHTML = `<div class="plan-total">≈ ${Math.round(totKm)} km in linea d'aria</div>` + STATE.dayPlan.map((id, i) => {
+  stopsEl.innerHTML = `<div class="plan-total">${kmLabel} · ${linksLabel}</div>` + STATE.dayPlan.map((id, i) => {
     const p = PV_BY_ID[id];
     const d = pvDisplay(p);
     const done = statusOf(p) === 'completato';
@@ -2013,7 +2021,8 @@ async function optimizePlan() {
   const points = hasStart
     ? [{ lat: STATE.position.lat, lng: STATE.position.lng }, ...stops]
     : stops;
-  const matrix = (await callDistanceMatrix(points)) || buildHaversineMatrix(points);
+  const orsMatrix = await callDistanceMatrix(points);
+  const matrix = orsMatrix || buildHaversineMatrix(points);
   let result;
   if (hasStart) {
     const seed = greedyTSP(matrix, 0);
@@ -2031,6 +2040,9 @@ async function optimizePlan() {
     ? result.order.filter(i => i > 0).map(i => stops[i - 1])
     : result.order.map(i => stops[i]);
   STATE.dayPlan = ordered.map(p => p.pv);
+  // Memorizza i km del giro legati alla composizione/ordine attuale: la sheet
+  // li mostra finché il piano non cambia (poi torna alla stima in linea d'aria).
+  STATE._planRoadKm = { km: result.km, sig: STATE.dayPlan.join(','), fromOrs: !!orsMatrix };
   saveDayPlan();
   renderPlanSheet();
   toast(`Ordine ottimizzato · ≈${Math.round(result.km)} km`);
@@ -2398,7 +2410,7 @@ function toast(msg, ms=1800) {
 
 // Build stamp visibile all'utente per capire se il browser sta servendo la versione
 // vecchia dalla cache. Bumpare ad ogni release significativa.
-const APP_VERSION = '2026-06-09.5';
+const APP_VERSION = '2026-06-09.6';
 
 const MAP_THEMES = {
   light: {
