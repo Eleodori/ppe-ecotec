@@ -595,6 +595,29 @@ aside {
 }
 .radius-pills button.on { background: var(--me); color: white; }
 
+/* Selettore stile mappa: griglia 2×2, opzione attiva evidenziata */
+.theme-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px 12px 8px;
+}
+.theme-grid button {
+  padding: 9px 10px !important;
+  border-radius: 6px !important;
+  background: var(--surface-2);
+  font-size: 12px !important;
+  font-weight: 500;
+  justify-content: center !important;
+  border: 1px solid transparent;
+}
+.theme-grid button.on {
+  background: rgba(59,130,246,.15);
+  border-color: var(--me);
+  color: var(--me);
+  font-weight: 600;
+}
+
 .toast {
   position: fixed; bottom: calc(80px + var(--safe-bot)); left: 50%;
   transform: translateX(-50%) translateY(20px);
@@ -913,12 +936,22 @@ aside {
       </div>
     </div>
     <hr>
+    <div class="menu-section">Sincronizzazione</div>
+    <div id="syncSection"></div>
+    <hr>
     <div class="menu-section">Dati</div>
     <button id="btnExportJson">⬇ Backup (JSON)</button>
     <button id="btnExportCsv">⬇ Completati (CSV)</button>
     <button id="btnImportJson">⬆ Importa backup</button>
     <hr>
-    <button id="btnToggleTheme">🌙 Scura</button>
+    <div class="menu-section">Stile mappa</div>
+    <div class="theme-grid" id="themeGrid">
+      <button data-theme="light">☀ Chiara</button>
+      <button data-theme="dark">🌙 Scura</button>
+      <button data-theme="topo">⛰ Rilievi</button>
+      <button data-theme="satellite">🛰 Satellite</button>
+    </div>
+    <hr>
     <button id="btnForceReload">🔄 Forza aggiornamento</button>
     <button id="btnAbout">ⓘ Info</button>
     <hr>
@@ -1398,6 +1431,11 @@ const STATE = {
   meAccuracyCircle: null,
   map: null,
   saveTimer: null,
+  syncCode: null,
+  lastSyncTs: null,
+  syncError: null,
+  _syncTimer: null,
+  _syncBusy: false,
 };
 
 const DBG = {
@@ -1436,11 +1474,115 @@ function saveUserState() {
   clearTimeout(STATE.saveTimer);
   STATE.saveTimer = setTimeout(async () => {
     await Store.set('userState', JSON.stringify(STATE.userState));
+    schedulePush();
   }, 400);
 }
 function saveSettings() {
   const { pvIds, ...filtersToSave } = STATE.filters;
-  Store.set('settings', JSON.stringify({ radiusKm: STATE.radiusKm, filters: filtersToSave, mapTheme: STATE.mapTheme, soprTariff: STATE.soprTariff }));
+  Store.set('settings', JSON.stringify({ radiusKm: STATE.radiusKm, filters: filtersToSave, mapTheme: STATE.mapTheme, soprTariff: STATE.soprTariff, syncCode: STATE.syncCode }));
+}
+
+// === Sync multi-dispositivo (Netlify Blobs) ===
+// Ogni modifica locale viene pushata (debounced) alla function state-sync, che
+// fa merge per-PV last-write-wins e restituisce lo stato consolidato. All'avvio
+// e quando l'app torna in primo piano facciamo un giro completo.
+const SYNC_URL = '/.netlify/functions/state-sync';
+
+function schedulePush() {
+  if (!STATE.syncCode) return;
+  clearTimeout(STATE._syncTimer);
+  STATE._syncTimer = setTimeout(() => syncNow(false), 3000);
+}
+
+async function syncNow(interactive) {
+  if (!STATE.syncCode || STATE._syncBusy) return;
+  STATE._syncBusy = true;
+  try {
+    const resp = await fetch(SYNC_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: STATE.syncCode, userState: STATE.userState }),
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    const merged = data.userState || {};
+    // Applica il merge solo se il server ha qualcosa di diverso da noi
+    if (JSON.stringify(merged) !== JSON.stringify(STATE.userState)) {
+      STATE.userState = merged;
+      await Store.set('userState', JSON.stringify(STATE.userState));
+      refreshAllMarkers(); renderCounters(); renderRegionStats(); renderList();
+      if (STATE.view === 'dashboard') renderDashboard();
+      if (STATE.selectedPv && PV_BY_ID[STATE.selectedPv]) renderDetail(PV_BY_ID[STATE.selectedPv]);
+    }
+    STATE.lastSyncTs = Date.now();
+    STATE.syncError = null;
+    if (interactive) toast('✓ Sincronizzato');
+  } catch (err) {
+    STATE.syncError = err.message;
+    if (interactive) toast('Sync fallito: ' + err.message, 3000);
+  } finally {
+    STATE._syncBusy = false;
+    renderSyncMenu();
+  }
+}
+
+function generateSyncCode() {
+  // Alfabeto senza caratteri ambigui (0/O, 1/I/l)
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  let code = '';
+  const rnd = new Uint32Array(8);
+  crypto.getRandomValues(rnd);
+  for (let i = 0; i < 8; i++) code += chars[rnd[i] % chars.length];
+  return code;
+}
+
+function renderSyncMenu() {
+  const el = document.getElementById('syncSection');
+  if (!el) return;
+  if (!STATE.syncCode) {
+    el.innerHTML = `<button id="btnSyncSetup">🔗 Attiva sync tra dispositivi</button>`;
+    document.getElementById('btnSyncSetup').addEventListener('click', setupSync);
+  } else {
+    const when = STATE.lastSyncTs ? fmtTs(STATE.lastSyncTs) : 'mai';
+    const status = STATE.syncError ? `⚠ errore: ${STATE.syncError}` : `ultimo sync: ${when}`;
+    el.innerHTML = `
+      <button id="btnSyncNow">🔄 Sincronizza ora<span class="menu-check mono" style="font-size:10px">${status}</span></button>
+      <button id="btnSyncCode">🔑 Codice: <span class="mono">${STATE.syncCode}</span></button>
+      <button id="btnSyncOff">✕ Scollega questo dispositivo</button>`;
+    document.getElementById('btnSyncNow').addEventListener('click', () => syncNow(true));
+    document.getElementById('btnSyncCode').addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(STATE.syncCode); toast('Codice copiato'); }
+      catch { prompt('Codice sync (copialo a mano):', STATE.syncCode); }
+    });
+    document.getElementById('btnSyncOff').addEventListener('click', () => {
+      if (!confirm('Scollegare il sync su questo dispositivo?\nI dati locali restano, smettono solo di sincronizzarsi.')) return;
+      STATE.syncCode = null;
+      saveSettings();
+      renderSyncMenu();
+    });
+  }
+}
+
+function setupSync() {
+  const input = prompt(
+    'SYNC TRA DISPOSITIVI\n\n' +
+    '• Primo dispositivo: lascia vuoto e premi OK, verrà creato un nuovo codice.\n' +
+    '• Altro dispositivo: incolla qui il codice del primo.',
+    ''
+  );
+  if (input === null) return; // annullato
+  const code = input.trim().toUpperCase();
+  if (code && !/^[A-Z0-9-]{6,40}$/.test(code)) {
+    alert('Codice non valido: 6-40 caratteri, lettere/numeri.');
+    return;
+  }
+  STATE.syncCode = code || generateSyncCode();
+  saveSettings();
+  renderSyncMenu();
+  if (!code) {
+    alert('Codice creato: ' + STATE.syncCode + '\n\nSalvalo e inseriscilo sugli altri dispositivi per collegarli.');
+  }
+  syncNow(true);
 }
 
 // Converte vecchio userState {fatto, problema, fromSource} → nuovo {sopralluogo_fatto_ts, installazione_fatta_ts}
@@ -1503,6 +1645,7 @@ async function loadFromStorage() {
       else if (s.mapTheme && s.mapTheme in MAP_THEMES) STATE.mapTheme = s.mapTheme;
       else if (s.darkMap === true) STATE.mapTheme = 'dark';
       if (s.soprTariff != null) STATE.soprTariff = parseFloat(s.soprTariff) || 0;
+      if (typeof s.syncCode === 'string' && s.syncCode) STATE.syncCode = s.syncCode;
     } catch(e) {}
   }
 
@@ -1585,32 +1728,28 @@ function toast(msg, ms=1800) {
 
 // Build stamp visibile all'utente per capire se il browser sta servendo la versione
 // vecchia dalla cache. Bumpare ad ogni release significativa.
-const APP_VERSION = '2026-05-30.10';
+const APP_VERSION = '2026-06-09.1';
 
 const MAP_THEMES = {
   light: {
     url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
     bg: '#e8e8e8', maxZoom: 19, subdomains: 'abcd',
     attribution: '© <a href="https://www.openstreetmap.org/copyright">OSM</a> · CARTO',
-    next: 'dark', btnLabel: '🌙 Scura',
   },
   dark: {
     url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
     bg: '#1a1a1a', maxZoom: 19, subdomains: 'abcd',
     attribution: '© <a href="https://www.openstreetmap.org/copyright">OSM</a> · CARTO',
-    next: 'topo', btnLabel: '⛰ Rilievi',
   },
   topo: {
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
     bg: '#dce8d4', maxZoom: 19, subdomains: '',
     attribution: 'Tiles © <a href="https://www.esri.com">ESRI</a>',
-    next: 'satellite', btnLabel: '🛰 Satellite',
   },
   satellite: {
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     bg: '#1a1a1a', maxZoom: 19, subdomains: '',
     attribution: 'Tiles © <a href="https://www.esri.com">ESRI</a>',
-    next: 'light', btnLabel: '☀ Chiara',
   },
 };
 
@@ -1696,8 +1835,12 @@ function setMapTheme(themeName) {
   document.documentElement.style.setProperty('--map-bg', t.bg);
   refreshAllMarkers();
   saveSettings();
-  const btn = document.getElementById('btnToggleTheme');
-  if (btn) btn.textContent = t.btnLabel;
+  renderThemeGrid();
+}
+
+function renderThemeGrid() {
+  document.querySelectorAll('#themeGrid button').forEach(b =>
+    b.classList.toggle('on', b.dataset.theme === STATE.mapTheme));
 }
 
 function refreshMarker(pvId) {
@@ -2540,11 +2683,9 @@ async function init() {
 
   document.getElementById('detailClose').addEventListener('click', closeDetail);
 
-  document.getElementById('btnToggleTheme').textContent = (MAP_THEMES[STATE.mapTheme] || MAP_THEMES.light).btnLabel;
-  document.getElementById('btnToggleTheme').addEventListener('click', () => {
-    const cur = MAP_THEMES[STATE.mapTheme] || MAP_THEMES.light;
-    setMapTheme(cur.next);
-    menuPop.classList.remove('open');
+  renderThemeGrid();
+  document.querySelectorAll('#themeGrid button').forEach(b => {
+    b.addEventListener('click', () => setMapTheme(b.dataset.theme));
   });
   document.getElementById('btnExportJson').addEventListener('click', () => { exportJson(); menuPop.classList.remove('open'); });
   document.getElementById('btnExportCsv').addEventListener('click', () => { exportCsv(); menuPop.classList.remove('open'); });
@@ -2604,6 +2745,14 @@ async function init() {
   window.addEventListener('resize', reinvalidateMap);
   window.addEventListener('orientationchange', reinvalidateMap);
   if (window.visualViewport) window.visualViewport.addEventListener('resize', reinvalidateMap);
+
+  // Sync multi-dispositivo: stato menu + giro completo all'avvio e quando
+  // l'app torna in primo piano (rientro da background su mobile).
+  renderSyncMenu();
+  if (STATE.syncCode) syncNow(false);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && STATE.syncCode) syncNow(false);
+  });
 
   document.getElementById('bootMsg').classList.add('gone');
   document.getElementById('app').style.display = 'grid';
