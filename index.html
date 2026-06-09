@@ -683,6 +683,7 @@ aside {
 .plan-actions { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 .plan-actions .btn { padding: 11px 10px; font-size: 13px; }
 .plan-empty { padding: 18px 8px; font-size: 13px; color: var(--text-muted); text-align: center; }
+.plan-total { padding: 2px 8px 8px; font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
 .plan-pop-backdrop {
   position: fixed; inset: 0; z-index: 2499;
   background: rgba(0,0,0,.3);
@@ -716,6 +717,59 @@ aside {
   50% { box-shadow: 0 0 0 10px rgba(59,130,246,0); }
 }
 @media (min-width: 900px) { .lasso-btn { bottom: 24px; right: 404px; } }
+
+/* === Disegno sulla mappa === */
+.draw-btn {
+  position: absolute;
+  right: 10px;
+  bottom: calc(126px + var(--safe-bot));
+  z-index: 450;
+  width: 46px; height: 46px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 18px;
+  box-shadow: var(--shadow-lg);
+  display: grid; place-items: center;
+}
+.draw-btn.active { background: var(--todo); border-color: var(--todo); }
+@media (min-width: 900px) { .draw-btn { bottom: 80px; right: 404px; } }
+.draw-toolbar {
+  position: absolute;
+  top: 10px; left: 50%;
+  transform: translateX(-50%);
+  z-index: 460;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  padding: 7px 10px;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  box-shadow: var(--shadow-lg);
+  max-width: calc(100vw - 20px);
+}
+.draw-toolbar.open { display: flex; }
+.draw-color {
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  background: var(--c);
+  border: 2px solid transparent;
+  flex-shrink: 0;
+}
+.draw-color.on { border-color: white; box-shadow: 0 0 0 2px var(--c); }
+.draw-tool {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  display: grid; place-items: center;
+  color: var(--text-dim);
+  font-size: 15px;
+  flex-shrink: 0;
+}
+.draw-tool.on { background: var(--me); color: white; }
+.draw-tool:active { transform: scale(.92); }
+.draw-sep { width: 1px; height: 20px; background: var(--border); flex-shrink: 0; }
 
 .toast {
   position: fixed; bottom: calc(80px + var(--safe-bot)); left: 50%;
@@ -942,6 +996,19 @@ aside {
     <div class="first-tip" id="firstTip"><strong>Tocca un pin sulla mappa</strong><br>o usa 📍 per centrarti.</div>
     <button class="plan-pill" id="planPill">📅 <span id="planPillLabel">0 tappe</span></button>
     <button class="lasso-btn" id="lassoBtn" title="Seleziona PV disegnando un'area">⬚</button>
+    <button class="draw-btn" id="drawBtn" title="Disegna sulla mappa">✏️</button>
+    <div class="draw-toolbar" id="drawToolbar">
+      <button class="draw-color on" data-color="#ef4444" style="--c:#ef4444" title="Rosso"></button>
+      <button class="draw-color" data-color="#f59e0b" style="--c:#f59e0b" title="Arancione"></button>
+      <button class="draw-color" data-color="#22c55e" style="--c:#22c55e" title="Verde"></button>
+      <button class="draw-color" data-color="#3b82f6" style="--c:#3b82f6" title="Blu"></button>
+      <button class="draw-color" data-color="#8b5cf6" style="--c:#8b5cf6" title="Viola"></button>
+      <button class="draw-color" data-color="#18181b" style="--c:#18181b" title="Nero"></button>
+      <span class="draw-sep"></span>
+      <button class="draw-tool" id="drawEraser" title="Gomma: tocca un tratto per cancellarlo">⌫</button>
+      <button class="draw-tool" id="drawClear" title="Cancella tutti i disegni">🗑</button>
+      <button class="draw-tool" id="drawExit" title="Esci dal disegno">✕</button>
+    </div>
 
     <aside id="sidebar">
       <div class="sidebar-handle" id="sidebarHandle">
@@ -1558,8 +1625,16 @@ function renderPlanSheet() {
     actsEl.innerHTML = '';
     return;
   }
+  // Totale del giro in linea d'aria (i km stradali precisi arrivano dal toast
+  // di 'Ottimizza ordine' che usa la matrice ORS)
+  let totKm = 0, prevTot = STATE.position;
+  for (const id of STATE.dayPlan) {
+    const p = PV_BY_ID[id];
+    if (prevTot) totKm += haversine(prevTot, p);
+    prevTot = p;
+  }
   let prev = STATE.position;
-  stopsEl.innerHTML = STATE.dayPlan.map((id, i) => {
+  stopsEl.innerHTML = `<div class="plan-total">≈ ${Math.round(totKm)} km in linea d'aria</div>` + STATE.dayPlan.map((id, i) => {
     const p = PV_BY_ID[id];
     const d = pvDisplay(p);
     const done = statusOf(p) === 'completato';
@@ -1758,23 +1833,207 @@ function finishLasso() {
   openPlanSheet();
 }
 
-// Riordina le tappe col TSP. Se c'è il GPS, parte dalla posizione attuale
+// === Disegno a mano libera sulla mappa ===
+// I tratti vivono in userState.__drawings (chiave riservata, non è un PV):
+// così viaggiano nei backup e nel sync multi-dispositivo senza codice extra.
+const _draw = { active: false, eraser: false, color: '#ef4444', drawing: false, points: [], temp: null };
+
+function getDrawings() {
+  const d = STATE.userState.__drawings;
+  return (d && Array.isArray(d.shapes)) ? d.shapes : [];
+}
+function setDrawings(shapes) {
+  STATE.userState.__drawings = { shapes, updatedAt: Date.now() };
+  saveUserState();
+  renderDrawings();
+}
+
+function renderDrawings() {
+  if (!STATE.map) return;
+  if (!STATE._drawLayer) STATE._drawLayer = L.layerGroup().addTo(STATE.map);
+  STATE._drawLayer.clearLayers();
+  for (const s of getDrawings()) {
+    if (s.type === 'path' && Array.isArray(s.points) && s.points.length > 1) {
+      // interactive:false → i tratti non intercettano i tap sui marker
+      L.polyline(s.points.map(p => [p.lat, p.lng]), {
+        color: s.color || '#ef4444', weight: s.width || 4, opacity: 0.9, interactive: false,
+      }).addTo(STATE._drawLayer);
+    }
+  }
+}
+
+function toggleDraw(force) {
+  const on = force != null ? force : !_draw.active;
+  if (on && _lasso.active) toggleLasso(false); // mutuamente esclusivi
+  _draw.active = on;
+  _draw.drawing = false;
+  _draw.eraser = false;
+  document.getElementById('drawBtn').classList.toggle('active', on);
+  document.getElementById('drawToolbar').classList.toggle('open', on);
+  document.getElementById('drawEraser').classList.remove('on');
+  const mapEl = document.getElementById('map');
+  if (on) {
+    STATE.map.dragging.disable();
+    STATE.map.touchZoom.disable();
+    mapEl.style.touchAction = 'none';
+    mapEl.style.cursor = 'crosshair';
+    toast('Modalità disegno: traccia col dito. ⌫ per cancellare un tratto.', 2500);
+  } else {
+    STATE.map.dragging.enable();
+    STATE.map.touchZoom.enable();
+    mapEl.style.touchAction = '';
+    mapEl.style.cursor = '';
+    if (_draw.temp) { STATE.map.removeLayer(_draw.temp); _draw.temp = null; }
+    _draw.points = [];
+  }
+}
+
+function initDraw() {
+  const mapEl = document.getElementById('map');
+  document.getElementById('drawBtn').addEventListener('click', () => toggleDraw());
+  document.getElementById('drawExit').addEventListener('click', () => toggleDraw(false));
+  document.getElementById('drawEraser').addEventListener('click', () => {
+    _draw.eraser = !_draw.eraser;
+    document.getElementById('drawEraser').classList.toggle('on', _draw.eraser);
+    toast(_draw.eraser ? 'Gomma attiva: tocca un tratto per cancellarlo' : 'Matita attiva', 2000);
+  });
+  document.getElementById('drawClear').addEventListener('click', () => {
+    if (getDrawings().length === 0) return;
+    if (!confirm('Cancellare tutti i disegni dalla mappa?')) return;
+    setDrawings([]);
+    toast('Disegni cancellati');
+  });
+  document.querySelectorAll('.draw-color').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _draw.color = btn.dataset.color;
+      _draw.eraser = false;
+      document.getElementById('drawEraser').classList.remove('on');
+      document.querySelectorAll('.draw-color').forEach(b => b.classList.toggle('on', b === btn));
+    });
+  });
+
+  mapEl.addEventListener('pointerdown', e => {
+    if (!_draw.active || _draw.eraser) return;
+    e.preventDefault();
+    try { mapEl.setPointerCapture(e.pointerId); } catch {}
+    _draw.drawing = true;
+    _draw.points = [STATE.map.mouseEventToLatLng(e)];
+    if (_draw.temp) STATE.map.removeLayer(_draw.temp);
+    _draw.temp = L.polyline(_draw.points, { color: _draw.color, weight: 4, opacity: 0.9 }).addTo(STATE.map);
+  });
+  mapEl.addEventListener('pointermove', e => {
+    if (!_draw.active || !_draw.drawing) return;
+    e.preventDefault();
+    const ll = STATE.map.mouseEventToLatLng(e);
+    const last = _draw.points[_draw.points.length - 1];
+    const a = STATE.map.latLngToContainerPoint(last);
+    const b = STATE.map.latLngToContainerPoint(ll);
+    if (Math.hypot(a.x - b.x, a.y - b.y) < 4) return;
+    _draw.points.push(ll);
+    _draw.temp.setLatLngs(_draw.points);
+  });
+  const endStroke = () => {
+    if (!_draw.active || !_draw.drawing) return;
+    _draw.drawing = false;
+    if (_draw.temp) { STATE.map.removeLayer(_draw.temp); _draw.temp = null; }
+    if (_draw.points.length > 1) {
+      const shape = {
+        id: Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+        type: 'path',
+        color: _draw.color,
+        width: 4,
+        points: _draw.points.map(p => ({ lat: +p.lat.toFixed(6), lng: +p.lng.toFixed(6) })),
+      };
+      setDrawings([...getDrawings(), shape]);
+    }
+    _draw.points = [];
+  };
+  mapEl.addEventListener('pointerup', endStroke);
+  mapEl.addEventListener('pointercancel', endStroke);
+}
+
+// Gomma: cancella il tratto più vicino al punto toccato (tolleranza 25px).
+function eraseDrawingAt(latlng) {
+  const click = STATE.map.latLngToContainerPoint(latlng);
+  const shapes = getDrawings();
+  let bestIdx = -1, bestD = 25;
+  shapes.forEach((s, idx) => {
+    for (const p of (s.points || [])) {
+      const cp = STATE.map.latLngToContainerPoint([p.lat, p.lng]);
+      const d = Math.hypot(cp.x - click.x, cp.y - click.y);
+      if (d < bestD) { bestD = d; bestIdx = idx; }
+    }
+  });
+  if (bestIdx >= 0) {
+    shapes.splice(bestIdx, 1);
+    setDrawings(shapes);
+    toast('Tratto cancellato');
+  }
+}
+
+// Riordina le tappe: nearest-neighbor come soluzione iniziale + 2-opt come
+// raffinamento (il greedy da solo è mediamente ~8% peggiore dell'ottimo, col
+// 2-opt si scende a ~1%). Se c'è il GPS, parte dalla posizione attuale
 // (punto fittizio in testa alla matrice, poi rimosso dall'ordine).
+function routeCost(order, m) {
+  let c = 0;
+  for (let i = 0; i < order.length - 1; i++) {
+    const d = m[order[i]][order[i + 1]];
+    if (d == null) return Infinity;
+    c += d;
+  }
+  return c;
+}
+
+// 2-opt: prova a invertire ogni segmento del percorso e tiene la mossa se i km
+// totali (ricalcolati sulla matrice direzionale) migliorano; ripete finché
+// non ci sono più miglioramenti. Con fixedStart la prima tappa resta bloccata
+// (è la posizione di partenza).
+function twoOptImprove(order, m, fixedStart = true) {
+  let best = order.slice();
+  let bestCost = routeCost(best, m);
+  let improved = true, guard = 0;
+  while (improved && guard++ < 50) {
+    improved = false;
+    for (let i = fixedStart ? 1 : 0; i < best.length - 1; i++) {
+      for (let j = i + 1; j < best.length; j++) {
+        const cand = best.slice(0, i).concat(best.slice(i, j + 1).reverse(), best.slice(j + 1));
+        const c = routeCost(cand, m);
+        if (c < bestCost - 1e-9) { best = cand; bestCost = c; improved = true; }
+      }
+    }
+  }
+  return { order: best, km: bestCost / 1000 };
+}
+
 async function optimizePlan() {
   const stops = STATE.dayPlan.map(id => PV_BY_ID[id]).filter(Boolean);
   if (stops.length < 2) return;
-  const points = STATE.position
+  const hasStart = !!STATE.position;
+  const points = hasStart
     ? [{ lat: STATE.position.lat, lng: STATE.position.lng }, ...stops]
     : stops;
   const matrix = (await callDistanceMatrix(points)) || buildHaversineMatrix(points);
-  const { order } = greedyTSP(matrix, 0);
-  const ordered = STATE.position
-    ? order.filter(i => i > 0).map(i => stops[i - 1])
-    : order.map(i => stops[i]);
+  let result;
+  if (hasStart) {
+    const seed = greedyTSP(matrix, 0);
+    result = twoOptImprove(seed.order, matrix, true);
+  } else {
+    // Senza punto di partenza: prova il greedy da ogni tappa e raffina il migliore
+    let bestSeed = null;
+    for (let s = 0; s < points.length; s++) {
+      const cand = greedyTSP(matrix, s);
+      if (!bestSeed || cand.km < bestSeed.km) bestSeed = cand;
+    }
+    result = twoOptImprove(bestSeed.order, matrix, false);
+  }
+  const ordered = hasStart
+    ? result.order.filter(i => i > 0).map(i => stops[i - 1])
+    : result.order.map(i => stops[i]);
   STATE.dayPlan = ordered.map(p => p.pv);
   saveDayPlan();
   renderPlanSheet();
-  toast('Ordine ottimizzato');
+  toast(`Ordine ottimizzato · ≈${Math.round(result.km)} km`);
 }
 
 // Apre Google Maps sulla prima tratta. Per giri >10 tappe usare
@@ -1910,6 +2169,7 @@ async function syncNow(interactive) {
       STATE.userState = merged;
       await Store.set('userState', JSON.stringify(STATE.userState));
       refreshAllMarkers(); renderCounters(); renderRegionStats(); renderList();
+      renderDrawings();
       if (STATE.view === 'dashboard') renderDashboard();
       if (STATE.selectedPv && PV_BY_ID[STATE.selectedPv]) renderDetail(PV_BY_ID[STATE.selectedPv]);
     }
@@ -1988,6 +2248,8 @@ function setupSync() {
 function migrateUserState(old) {
   const out = {};
   for (const [pvId, v] of Object.entries(old || {})) {
+    // Chiavi riservate (es. __drawings) non sono PV: passano invariate
+    if (pvId.startsWith('__')) { out[pvId] = v; continue; }
     const entry = {
       // preserva i campi già in formato nuovo (stato misto vecchio/nuovo nello stesso backup)
       sopralluogo_fatto_ts: v.sopralluogo_fatto_ts || null,
@@ -2136,7 +2398,7 @@ function toast(msg, ms=1800) {
 
 // Build stamp visibile all'utente per capire se il browser sta servendo la versione
 // vecchia dalla cache. Bumpare ad ogni release significativa.
-const APP_VERSION = '2026-06-09.4';
+const APP_VERSION = '2026-06-09.5';
 
 const MAP_THEMES = {
   light: {
@@ -2189,7 +2451,7 @@ function initMap() {
     const m = L.circleMarker([p.lat, p.lng], { ...markerStyle(p), bubblingMouseEvents: false });
     m._pv = p.pv;
     m.on('click', e => {
-      if (_lasso.active) return; // in modalità lasso i tap servono a disegnare
+      if (_lasso.active || _draw.active) return; // i tap servono a disegnare
       _lastMarkerClickMs = Date.now();
       L.DomEvent.stopPropagation(e);
       selectPv(p.pv);
@@ -2202,6 +2464,10 @@ function initMap() {
   }
   STATE.map.on('click', (e) => {
     if (_lasso.active) return;
+    if (_draw.active) {
+      if (_draw.eraser) eraseDrawingAt(e.latlng);
+      return;
+    }
     if (STATE._manualPosMode) {
       // Posizione impostata a mano (per Mac/desktop senza GPS): si comporta
       // come un fix GPS per distanze, filtro 'vicino' e ottimizzazione giro.
@@ -3199,11 +3465,13 @@ async function init() {
   window.addEventListener('orientationchange', reinvalidateMap);
   if (window.visualViewport) window.visualViewport.addEventListener('resize', reinvalidateMap);
 
-  // Piano giornata + lasso di selezione
+  // Piano giornata + lasso di selezione + disegno
   document.getElementById('planPill').addEventListener('click', openPlanSheet);
   document.getElementById('planPopBackdrop').addEventListener('click', closePlanSheet);
   renderPlanUI();
   initLasso();
+  initDraw();
+  renderDrawings();
 
   // Sync multi-dispositivo: stato menu + giro completo all'avvio e quando
   // l'app torna in primo piano (rientro da background su mobile).
