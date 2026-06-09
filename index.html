@@ -1558,12 +1558,17 @@ function renderPlanSheet() {
       renderPlanSheet();
     });
   });
+  const nLinks = buildPlanLinks().length;
   actsEl.innerHTML = `
     <button class="btn" id="planOptimize">🧭 Ottimizza ordine${STATE.position ? ' (da qui)' : ''}</button>
-    <button class="btn navigate" id="planOpenMaps">▸ Apri percorso in Google Maps</button>
+    <button class="btn navigate" id="planOpenMaps">▸ Apri in Google Maps${nLinks > 1 ? ' (tratta 1)' : ''}</button>
+    <button class="btn" id="planCopyLinks">🔗 Copia link percorso${nLinks > 1 ? ` (${nLinks} tratte)` : ''}</button>
+    <button class="btn" id="planCopyList">📋 Copia lista PV</button>
     <button class="btn ghost-undo" id="planClear">🗑 Svuota piano</button>`;
   document.getElementById('planOptimize').addEventListener('click', optimizePlan);
   document.getElementById('planOpenMaps').addEventListener('click', openPlanInMaps);
+  document.getElementById('planCopyLinks').addEventListener('click', copyPlanLinks);
+  document.getElementById('planCopyList').addEventListener('click', copyPlanList);
   document.getElementById('planClear').addEventListener('click', () => {
     if (!confirm('Svuotare il piano giornata?')) return;
     STATE.dayPlan = [];
@@ -1571,6 +1576,61 @@ function renderPlanSheet() {
     renderPlanUI();
     renderPlanSheet();
   });
+}
+
+// Spezza il piano in tratte da max 10 tappe (limite Google Maps) e genera un
+// link per tratta. Le tratte si concatenano: l'origine di ognuna è l'ultima
+// tappa della precedente, così i link in sequenza coprono l'intero giro.
+function buildPlanLinks() {
+  const stops = STATE.dayPlan.map(id => PV_BY_ID[id]).filter(Boolean);
+  if (stops.length === 0) return [];
+  const MAX = 10;
+  const fmt = p => `${p.lat},${p.lng}`;
+  const links = [];
+  for (let i = 0; i < stops.length; i += MAX) {
+    const batch = stops.slice(i, i + MAX);
+    const dest = batch[batch.length - 1];
+    const waypoints = batch.slice(0, -1).map(fmt).join('|');
+    let url = `https://www.google.com/maps/dir/?api=1&destination=${fmt(dest)}&travelmode=driving`;
+    if (waypoints) url += `&waypoints=${encodeURIComponent(waypoints)}`;
+    if (i === 0) {
+      if (STATE.position) url += `&origin=${STATE.position.lat},${STATE.position.lng}`;
+    } else {
+      url += `&origin=${fmt(stops[i - 1])}`;
+    }
+    links.push(url);
+  }
+  return links;
+}
+
+async function copyTextSafe(text, okMsg) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(okMsg);
+  } catch {
+    // Fallback per browser senza clipboard API: prompt selezionabile
+    prompt('Copia manualmente:', text);
+  }
+}
+
+function copyPlanLinks() {
+  const links = buildPlanLinks();
+  if (links.length === 0) return;
+  const text = links.length === 1
+    ? links[0]
+    : links.map((url, i) => `Tratta ${i + 1}/${links.length}:\n${url}`).join('\n\n');
+  copyTextSafe(text, links.length === 1 ? 'Link copiato' : `${links.length} link copiati (uno per tratta)`);
+}
+
+function copyPlanList() {
+  const stops = STATE.dayPlan.map(id => PV_BY_ID[id]).filter(Boolean);
+  if (stops.length === 0) return;
+  const lines = stops.map((p, i) => {
+    const d = pvDisplay(p);
+    return `${i + 1}. PV ${p.pv} — ${d.comune} (${d.prov})${d.indirizzo ? ', ' + d.indirizzo : ''}`;
+  });
+  const text = `Piano giornata — ${stops.length} tappe\n` + lines.join('\n');
+  copyTextSafe(text, 'Lista PV copiata');
 }
 
 // Riordina le tappe col TSP. Se c'è il GPS, parte dalla posizione attuale
@@ -1592,21 +1652,13 @@ async function optimizePlan() {
   toast('Ordine ottimizzato');
 }
 
-// Apre Google Maps con il percorso multi-tappa. Limite Google: ~9 waypoint
-// + destinazione; se il piano è più lungo apriamo le prime 10 tappe.
+// Apre Google Maps sulla prima tratta. Per giri >10 tappe usare
+// '🔗 Copia link percorso' che genera un link per ogni tratta.
 function openPlanInMaps() {
-  const stops = STATE.dayPlan.map(id => PV_BY_ID[id]).filter(Boolean);
-  if (stops.length === 0) return;
-  const MAX = 10;
-  const batch = stops.slice(0, MAX);
-  if (stops.length > MAX) toast(`Apro le prime ${MAX} tappe (Google Maps non supporta di più)`, 3000);
-  const fmt = p => `${p.lat},${p.lng}`;
-  const dest = batch[batch.length - 1];
-  const waypoints = batch.slice(0, -1).map(fmt).join('|');
-  let url = `https://www.google.com/maps/dir/?api=1&destination=${fmt(dest)}&travelmode=driving`;
-  if (waypoints) url += `&waypoints=${encodeURIComponent(waypoints)}`;
-  if (STATE.position) url += `&origin=${STATE.position.lat},${STATE.position.lng}`;
-  window.open(url, '_blank', 'noopener');
+  const links = buildPlanLinks();
+  if (links.length === 0) return;
+  if (links.length > 1) toast(`Giro lungo: apro la tratta 1 di ${links.length}. Usa "Copia link" per tutte.`, 3500);
+  window.open(links[0], '_blank', 'noopener');
 }
 
 function renderEconomicBlock() {
@@ -1959,7 +2011,7 @@ function toast(msg, ms=1800) {
 
 // Build stamp visibile all'utente per capire se il browser sta servendo la versione
 // vecchia dalla cache. Bumpare ad ogni release significativa.
-const APP_VERSION = '2026-06-09.1';
+const APP_VERSION = '2026-06-09.2';
 
 const MAP_THEMES = {
   light: {
@@ -2589,46 +2641,66 @@ function _doRecenter(lat, lng) {
   STATE.map.setView([lat, lng], Math.max(STATE.map.getZoom(), 12), { animate: true });
 }
 
-function startGeolocation(forceCenter=false) {
+function startGeolocation(forceCenter=false, lowAccuracy=false) {
   if (!navigator.geolocation) { toast('Geolocazione non supportata'); return; }
   document.getElementById('locateBtn').classList.add('active');
   if (forceCenter) STATE._pendingRecenter = true;
-  if (STATE.watchId == null) {
-    STATE.watchId = navigator.geolocation.watchPosition(
-      pos => {
-        const lat = pos.coords.latitude, lng = pos.coords.longitude;
-        const wasNull = !STATE.position;
-        const prev = STATE.position;
-        STATE.position = { lat, lng, accuracy: pos.coords.accuracy };
-        DBG.gpsCount++;
-        DBG.gpsLast = { lat, lng, acc: pos.coords.accuracy, t: Date.now() };
-        updateMeMarker();
-
-        if (wasNull || STATE._pendingRecenter) {
-          STATE._pendingRecenter = false;
-          _doRecenter(lat, lng);
-        }
-
-        const movedKm = prev ? haversine(prev, STATE.position) : 1;
-        const now = Date.now();
-        if (movedKm > 0.1 || (now - STATE._lastNearRefreshTs) > 10000) {
-          STATE._lastNearRefreshTs = now;
-          DBG.gpsRefreshCount++;
-          refreshAllMarkers(); renderList();
-        }
-
-        dismissFirstTip();
-      },
-      err => {
-        document.getElementById('locateBtn').classList.remove('active');
-        toast('GPS: ' + err.message, 3500);
-      },
-      { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
-    );
-  } else if (forceCenter && STATE.position) {
-    STATE._pendingRecenter = false;
-    _doRecenter(STATE.position.lat, STATE.position.lng);
+  if (STATE.watchId != null) {
+    if (forceCenter && STATE.position) {
+      STATE._pendingRecenter = false;
+      _doRecenter(STATE.position.lat, STATE.position.lng);
+    }
+    return; // watch già attivo e funzionante
   }
+  STATE.watchId = navigator.geolocation.watchPosition(
+    pos => {
+      const lat = pos.coords.latitude, lng = pos.coords.longitude;
+      const wasNull = !STATE.position;
+      const prev = STATE.position;
+      STATE.position = { lat, lng, accuracy: pos.coords.accuracy };
+      DBG.gpsCount++;
+      DBG.gpsLast = { lat, lng, acc: pos.coords.accuracy, t: Date.now() };
+      updateMeMarker();
+
+      if (wasNull || STATE._pendingRecenter) {
+        STATE._pendingRecenter = false;
+        _doRecenter(lat, lng);
+      }
+
+      const movedKm = prev ? haversine(prev, STATE.position) : 1;
+      const now = Date.now();
+      if (movedKm > 0.1 || (now - STATE._lastNearRefreshTs) > 10000) {
+        STATE._lastNearRefreshTs = now;
+        DBG.gpsRefreshCount++;
+        refreshAllMarkers(); renderList();
+      }
+
+      dismissFirstTip();
+    },
+    err => {
+      // IMPORTANTE: azzerare il watch fallito, altrimenti i tap successivi
+      // troverebbero watchId valorizzato e non farebbero più nulla.
+      try { navigator.geolocation.clearWatch(STATE.watchId); } catch {}
+      STATE.watchId = null;
+      document.getElementById('locateBtn').classList.remove('active');
+      // Su Safari err.message è spesso vuoto: usiamo err.code.
+      if (err.code === 1) { // PERMISSION_DENIED
+        toast('GPS negato. Safari: tocca "aA" nella barra indirizzi → Impostazioni sito → Posizione → Consenti. Poi riprova.', 6000);
+      } else if (!lowAccuracy) {
+        // Timeout o posizione non disponibile in alta precisione (frequente al
+        // chiuso): riprova automaticamente in modalità a bassa precisione.
+        toast('GPS lento, riprovo in modalità base…', 2000);
+        startGeolocation(forceCenter, true);
+      } else if (err.code === 3) { // TIMEOUT
+        toast('GPS: tempo scaduto. Riprova all\'aperto o controlla che la Posizione sia attiva.', 4500);
+      } else {
+        toast('GPS non disponibile al momento. Riprova tra poco.', 4000);
+      }
+    },
+    lowAccuracy
+      ? { enableHighAccuracy: false, maximumAge: 60000, timeout: 30000 }
+      : { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+  );
 }
 
 function updateMeMarker() {
