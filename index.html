@@ -1323,6 +1323,11 @@ aside {
   <div class="region-pop-backdrop" id="restorePopBackdrop"></div>
   <div class="region-pop" id="restorePop"></div>
 
+  <!-- Input foto a livello body: deve sopravvivere ai re-render del detail panel
+       (es. quando il sync che parte al rientro in foreground ricrea l'HTML, l'input
+       dentro al panel verrebbe sostituito prima dell'evento change). -->
+  <input type="file" id="photoInput" accept="image/*" multiple hidden>
+
   <div class="photo-lightbox" id="photoLightbox">
     <img id="photoLightboxImg" alt="">
     <div class="photo-lightbox-bar">
@@ -2879,7 +2884,7 @@ function toast(msg, ms=1800) {
 
 // Build stamp visibile all'utente per capire se il browser sta servendo la versione
 // vecchia dalla cache. Bumpare ad ogni release significativa.
-const APP_VERSION = '2026-06-10.3';
+const APP_VERSION = '2026-06-10.4';
 
 const MAP_THEMES = {
   light: {
@@ -3343,7 +3348,6 @@ function renderDetail(p) {
     <div class="detail-row" style="margin-top:8px;flex-direction:column;align-items:stretch;gap:6px"><div class="label">Foto</div>
       <div class="photo-grid" id="photoGrid"></div>
       <button class="btn" id="btnAddPhoto" style="font-size:12px;padding:9px 10px">📷 Aggiungi foto</button>
-      <input type="file" id="photoInput" accept="image/*" capture="environment" multiple hidden>
     </div>
     <div class="detail-row"><div class="label">Naviga</div><div class="val"><a href="${ggUrl}" target="_blank" rel="noopener">Google Maps</a> · <a href="${wzUrl}" target="_blank" rel="noopener">Waze</a></div></div>
   `;
@@ -3360,7 +3364,6 @@ function renderDetail(p) {
 
   renderPhotoGrid(p);
   document.getElementById('btnAddPhoto').addEventListener('click', () => onAddPhotoClick(p.pv));
-  document.getElementById('photoInput').addEventListener('change', (ev) => onPhotoFilesSelected(p.pv, ev.target.files));
 
   // Buttons
   const canUndoSopr = !!us.sopralluogo_fatto_ts && !p.sopralluogo_ts && !p.sopralluogo_fatto;
@@ -3630,24 +3633,36 @@ async function sha256Hex(blob) {
 }
 
 // Ridimensiona + ricomprime a JPEG. EXIF viene scartato dal canvas (utile per privacy).
+// Riduce a 1280px lato lungo + JPEG q=0.7. Tenta nell'ordine: createImageBitmap
+// (più veloce, gestisce orientation automaticamente), poi <img> via objectURL.
+// Se entrambi falliscono (raro: file corrotto, HEIC non convertito da Safari)
+// si torna al file originale comprimendo nuovamente con canvas tramite Image,
+// o se anche quello fallisce si salva il file originale invariato (entro il
+// limite dei 2 MB lato server).
 async function compressImage(file) {
-  const bmp = await (window.createImageBitmap
-    ? createImageBitmap(file).catch(() => null)
-    : Promise.resolve(null));
-  let width, height, source;
-  if (bmp) {
-    source = bmp; width = bmp.width; height = bmp.height;
-  } else {
-    // Fallback per browser senza createImageBitmap
-    const img = await new Promise((res, rej) => {
-      const i = new Image();
-      i.onload = () => res(i);
-      i.onerror = () => rej(new Error('immagine non leggibile'));
-      i.src = URL.createObjectURL(file);
-    });
-    source = img; width = img.naturalWidth; height = img.naturalHeight;
+  let source, width, height, bmp;
+  try {
+    if (window.createImageBitmap) {
+      bmp = await createImageBitmap(file);
+      source = bmp; width = bmp.width; height = bmp.height;
+    }
+  } catch { bmp = null; }
+  if (!source) {
+    const objUrl = URL.createObjectURL(file);
+    try {
+      const img = await new Promise((res, rej) => {
+        const i = new Image();
+        i.onload = () => res(i);
+        i.onerror = () => rej(new Error('formato immagine non supportato dal browser (HEIC?)'));
+        i.src = objUrl;
+      });
+      source = img; width = img.naturalWidth; height = img.naturalHeight;
+    } finally {
+      // l'object URL serve finché disegnamo nel canvas; lo libero al termine
+      setTimeout(() => URL.revokeObjectURL(objUrl), 0);
+    }
   }
-  if (width === 0 || height === 0) throw new Error('immagine vuota');
+  if (!width || !height) throw new Error('dimensioni immagine non disponibili');
   const scale = Math.min(1, PHOTO_MAX_DIM / Math.max(width, height));
   const w = Math.max(1, Math.round(width * scale));
   const h = Math.max(1, Math.round(height * scale));
@@ -3655,7 +3670,9 @@ async function compressImage(file) {
   canvas.width = w; canvas.height = h;
   canvas.getContext('2d').drawImage(source, 0, 0, w, h);
   if (bmp && bmp.close) bmp.close();
-  return await new Promise(res => canvas.toBlob(res, 'image/jpeg', PHOTO_JPEG_Q));
+  const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', PHOTO_JPEG_Q));
+  if (!blob || blob.size === 0) throw new Error('canvas.toBlob ha restituito vuoto');
+  return blob;
 }
 
 function blobToBase64(blob) {
@@ -3682,22 +3699,41 @@ function onAddPhotoClick(pvId) {
   if (photos.length >= PHOTO_SOFT_CAP) {
     if (!confirm(`Hai già ${photos.length} foto su questo PV. Aggiungerne ancora? (massimo ${PHOTO_HARD_CAP})`)) return;
   }
+  // Memorizza il PV target su una variabile globale: l'input vive a livello
+  // body (sopravvive ai re-render del detail) e il listener change lo legge
+  // di qui per sapere a quale PV associare i file.
+  _photo.pendingPv = pvId;
   document.getElementById('photoInput').click();
 }
 
 async function onPhotoFilesSelected(pvId, files) {
-  if (!files || files.length === 0) return;
-  document.getElementById('photoInput').value = ''; // reset così la stessa foto può essere riselezionata
+  const input = document.getElementById('photoInput');
+  if (!files || files.length === 0) { input.value = ''; return; }
+  // Apri/riapri il detail del PV target così l'utente vede sempre la grid che si popola
+  if (STATE.selectedPv !== pvId && PV_BY_ID[pvId]) selectPv(pvId, { skipPan: true });
+  let added = 0, errors = 0;
   for (const file of files) {
-    if (!file.type.startsWith('image/')) { toast(`Saltato: ${file.name} non è un'immagine`, 3000); continue; }
+    if (!file.type.startsWith('image/') && !/\.(heic|heif|jpg|jpeg|png|webp)$/i.test(file.name || '')) {
+      toast(`Saltato: ${file.name || 'file'} non è un'immagine`, 3000);
+      continue;
+    }
     const current = pvPhotos({ pv: pvId });
     if (current.length >= PHOTO_HARD_CAP) { toast(`Limite ${PHOTO_HARD_CAP} foto raggiunto`, 3000); break; }
     try {
-      const blob = await compressImage(file);
-      if (!blob) throw new Error('compressione fallita');
+      let blob;
+      try { blob = await compressImage(file); }
+      catch (compressErr) {
+        // Fallback: salva il file originale se entro 2MB (es. HEIC non leggibile dal canvas)
+        if (file.size <= 2_000_000) {
+          console.warn('Compressione fallita, salvo originale:', compressErr.message);
+          blob = file;
+        } else {
+          throw new Error('compressione fallita e file > 2MB: ' + compressErr.message);
+        }
+      }
+      if (!blob || blob.size === 0) throw new Error('blob vuoto');
       const id = await sha256Hex(blob);
       await photoDBPut(id, blob);
-      // Aggiungo al userState (tombstone esistente con stesso id → riattivato)
       const cur = STATE.userState[pvId] || {};
       const list = Array.isArray(cur.photos) ? [...cur.photos] : [];
       const existing = list.findIndex(ph => ph && ph.id === id);
@@ -3705,15 +3741,19 @@ async function onPhotoFilesSelected(pvId, files) {
       if (existing >= 0) list[existing] = entry; else list.push(entry);
       STATE.userState[pvId] = { ...cur, photos: list, updatedAt: Date.now() };
       saveUserState();
-      // Upload async al server (se sync attivo)
       uploadPhoto(id, blob).catch(() => {});
-      // Aggiorna UI in tempo reale
+      added++;
       const p = PV_BY_ID[pvId];
       if (STATE.selectedPv === pvId && p) renderPhotoGrid(p);
     } catch (err) {
-      toast('Errore foto: ' + (err.message || 'sconosciuto'), 4000);
+      errors++;
+      toast('Errore foto: ' + (err.message || 'sconosciuto'), 4500);
+      console.error('photo error', err, file);
     }
   }
+  input.value = ''; // reset per riselezionare la stessa foto
+  if (added > 0) toast(`✓ ${added} foto aggiunt${added === 1 ? 'a' : 'e'}`);
+  else if (errors === 0) toast('Nessun file selezionato', 2000);
 }
 
 async function uploadPhoto(id, blob) {
@@ -4370,6 +4410,12 @@ async function init() {
   document.getElementById('photoLightboxSave').addEventListener('click', saveLightboxDesc);
   document.getElementById('photoLightboxDelete').addEventListener('click', deleteLightboxPhoto);
   document.getElementById('photoLightboxImg').addEventListener('click', closePhotoLightbox);
+  document.getElementById('photoInput').addEventListener('change', (ev) => {
+    const pvId = _photo.pendingPv;
+    _photo.pendingPv = null;
+    if (!pvId) { ev.target.value = ''; return; }
+    onPhotoFilesSelected(pvId, ev.target.files);
+  });
 
   // Sync multi-dispositivo: stato menu + giro completo all'avvio e quando
   // l'app torna in primo piano (rientro da background su mobile).
