@@ -589,6 +589,11 @@ aside {
   box-shadow: var(--shadow-lg);
   z-index: 1500;
   display: none;
+  /* il menu è cresciuto: su schermi piccoli deve scrollare invece di uscire dal viewport */
+  max-height: calc(100dvh - var(--header-h) - var(--safe-top) - var(--safe-bot) - 20px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 .menu-pop.open { display: block; }
 .menu-pop button, .menu-pop .menu-section {
@@ -1038,7 +1043,7 @@ aside {
     <div id="map"></div>
     <div class="first-tip" id="firstTip"><strong>Tocca un pin sulla mappa</strong><br>o usa 📍 per centrarti.</div>
     <button class="plan-pill" id="planPill">📅 <span id="planPillLabel">0 tappe</span></button>
-    <button class="lasso-btn" id="lassoBtn" title="Seleziona PV disegnando un'area">⬚</button>
+    <button class="lasso-btn" id="lassoBtn" title="Seleziona PV disegnando un'area">🎯</button>
     <button class="draw-btn" id="drawBtn" title="Disegna sulla mappa">✏️</button>
     <div class="draw-toolbar" id="drawToolbar">
       <button class="draw-color on" data-color="#ef4444" style="--c:#ef4444" title="Rosso"></button>
@@ -2679,7 +2684,7 @@ function toast(msg, ms=1800) {
 
 // Build stamp visibile all'utente per capire se il browser sta servendo la versione
 // vecchia dalla cache. Bumpare ad ogni release significativa.
-const APP_VERSION = '2026-06-09.7';
+const APP_VERSION = '2026-06-10.1';
 
 const MAP_THEMES = {
   light: {
