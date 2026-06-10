@@ -484,7 +484,14 @@ aside {
   .detail-sheet::before { display: none; }
 }
 .detail-header { padding: 22px 20px 12px; display: flex; align-items: flex-start; gap: 12px; }
-.detail-pv-block { font-family: var(--font-mono); font-weight: 600; font-size: 11px; color: var(--text-muted); letter-spacing: .05em; text-transform: uppercase; }
+.detail-pv-block {
+  font-family: var(--font-mono); font-weight: 700;
+  font-size: 18px; letter-spacing: .02em;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.detail-pv-block .pv-lbl { font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .1em; margin-right: 6px; vertical-align: middle; }
+.detail-pv-block .pv-num { font-size: 22px; }
 .detail-title { font-size: 19px; font-weight: 600; margin-top: 2px; letter-spacing: -.01em; }
 .detail-meta { flex: 1; }
 .detail-close { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; color: var(--text-dim); }
@@ -675,15 +682,46 @@ aside {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 10px;
+  padding: 0 10px 10px;
   z-index: 2500;
   display: none;
+  flex-direction: column;
   box-shadow: var(--shadow-lg);
-  max-height: 80vh;
-  overflow-y: auto;
+  max-height: 85dvh;
+  overflow: hidden;
 }
-.plan-pop.open { display: block; }
-.plan-pop .menu-section { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); padding: 6px 8px 8px; }
+.plan-pop.open { display: flex; }
+.plan-pop-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 4px 8px;
+  border-bottom: 1px solid var(--surface-2);
+  margin-bottom: 6px;
+  position: sticky; top: 0;
+  background: var(--surface);
+  z-index: 1;
+}
+.plan-pop-head h3 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--text); flex: 1; }
+.plan-pop-close {
+  width: 32px; height: 32px;
+  display: grid; place-items: center;
+  border-radius: 8px;
+  color: var(--text-dim);
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.plan-pop-close:active { background: var(--surface-2); color: var(--text); }
+.plan-pop-body { overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; flex: 1; min-height: 0; }
+.plan-stop-kind {
+  display: inline-block; padding: 1px 6px;
+  border-radius: 4px; font-size: 9px; font-weight: 700;
+  letter-spacing: .05em; text-transform: uppercase;
+  margin-right: 4px; vertical-align: middle;
+}
+.plan-stop-kind.kind-sopr { background: rgba(139,92,246,.18); color: var(--sopralluogo); }
+.plan-stop-kind.kind-inst { background: rgba(245,158,11,.18); color: var(--todo); }
+.plan-stop-kind.kind-attesa { background: rgba(96,165,250,.18); color: var(--attesa); }
+.plan-stop-kind.kind-done { background: rgba(34,197,94,.18); color: var(--done); }
+.plan-stop-pv { font-size: 12px; font-weight: 700; color: var(--text); }
 .plan-stop {
   display: flex; align-items: center; gap: 10px;
   padding: 9px 8px;
@@ -1169,6 +1207,7 @@ aside {
     <hr>
     <div class="menu-section">Stile mappa</div>
     <div class="theme-grid" id="themeGrid">
+      <button data-theme="streets">🛣 Strade</button>
       <button data-theme="light">☀ Chiara</button>
       <button data-theme="dark">🌙 Scura</button>
       <button data-theme="topo">⛰ Rilievi</button>
@@ -1223,9 +1262,14 @@ aside {
 
   <div class="plan-pop-backdrop" id="planPopBackdrop"></div>
   <div class="plan-pop" id="planPop">
-    <div class="menu-section">Piano giornata</div>
-    <div id="planStops"></div>
-    <div class="plan-actions" id="planActions"></div>
+    <div class="plan-pop-head">
+      <h3>Piano giornata</h3>
+      <button class="plan-pop-close" id="planPopClose" title="Chiudi">✕</button>
+    </div>
+    <div class="plan-pop-body">
+      <div id="planStops"></div>
+      <div class="plan-actions" id="planActions"></div>
+    </div>
   </div>
 
   <div class="edit-pop-backdrop" id="importPopBackdrop"></div>
@@ -1755,7 +1799,7 @@ function renderPlanUI() {
   const n = STATE.dayPlan.length;
   pill.classList.toggle('show', n > 0);
   if (lbl) {
-    const done = STATE.dayPlan.filter(id => PV_BY_ID[id] && statusOf(PV_BY_ID[id]) === 'completato').length;
+    const done = STATE.dayPlan.filter(id => PV_BY_ID[id] && planStopIsDone(PV_BY_ID[id])).length;
     lbl.textContent = done > 0 ? `${done}/${n} fatte` : (n === 1 ? '1 tappa' : `${n} tappe`);
   }
 }
@@ -1800,13 +1844,15 @@ function renderPlanSheet() {
   stopsEl.innerHTML = `<div class="plan-total">${kmLabel} · ${linksLabel}</div>` + STATE.dayPlan.map((id, i) => {
     const p = PV_BY_ID[id];
     const d = pvDisplay(p);
-    const done = statusOf(p) === 'completato';
+    const done = planStopIsDone(p);
+    const kind = planStopKind(p);
     const dist = prev ? fmtDist(haversine(prev, p)) : '';
     prev = p;
+    const kindCls = kind === 'SOPR' ? 'kind-sopr' : kind === 'INST' ? 'kind-inst' : kind === 'sopr ✓' ? 'kind-attesa' : kind === 'fatto ✓' ? 'kind-done' : '';
     return `<div class="plan-stop${done ? ' done' : ''}" data-pv="${id}">
       <span class="plan-stop-num">${i + 1}</span>
       <div class="plan-stop-body">
-        <div class="plan-stop-title">${d.comune} <span class="mono" style="font-weight:400;font-size:11px">· ${id}</span></div>
+        <div class="plan-stop-title">${kind ? `<span class="plan-stop-kind ${kindCls}">${kind}</span> ` : ''}<span class="plan-stop-pv mono">PV ${id}</span> · ${d.comune}</div>
         <div class="plan-stop-sub">${d.indirizzo || p.regione}${dist ? ' · ' + dist : ''}</div>
       </div>
       <button class="plan-stop-remove" data-remove="${id}" title="Rimuovi tappa">✕</button>
@@ -1826,7 +1872,7 @@ function renderPlanSheet() {
     });
   });
   const nLinks = buildPlanLinks().length;
-  const nDone = STATE.dayPlan.filter(id => PV_BY_ID[id] && statusOf(PV_BY_ID[id]) === 'completato').length;
+  const nDone = STATE.dayPlan.filter(id => PV_BY_ID[id] && planStopIsDone(PV_BY_ID[id])).length;
   actsEl.innerHTML = `
     <button class="btn" id="planOptimize">🧭 Ottimizza ordine${STATE.position ? ' (da qui)' : ''}</button>
     <button class="btn navigate" id="planOpenMaps">▸ Apri in Google Maps${nLinks > 1 ? ' (tratta 1)' : ''}</button>
@@ -1843,7 +1889,7 @@ function renderPlanSheet() {
   if (shareBtn) shareBtn.addEventListener('click', sharePlan);
   const removeDoneBtn = document.getElementById('planRemoveDone');
   if (removeDoneBtn) removeDoneBtn.addEventListener('click', () => {
-    STATE.dayPlan = STATE.dayPlan.filter(id => !PV_BY_ID[id] || statusOf(PV_BY_ID[id]) !== 'completato');
+    STATE.dayPlan = STATE.dayPlan.filter(id => !PV_BY_ID[id] || !planStopIsDone(PV_BY_ID[id]));
     saveDayPlan();
     renderPlanUI();
     renderPlanSheet();
@@ -1922,14 +1968,57 @@ function copyPlanLinks() {
   copyTextSafe(text, links.length === 1 ? 'Link copiato' : `${links.length} link copiati (uno per tratta)`);
 }
 
+// Una tappa del piano è considerata "fatta" se completata (installata) OPPURE
+// se era un sopralluogo ed è passata ad 'attesa serena' (il sopralluogo è
+// stato fatto, ora aspetta la planimetria — il lavoro sul campo è chiuso).
+function planStopIsDone(p) {
+  const st = statusOf(p);
+  return st === 'completato' || st === 'attesa';
+}
+
+// Etichetta tipo lavoro residuo per la tappa: cosa devi fare quando ci arrivi.
+function planStopKind(p) {
+  const st = statusOf(p);
+  if (st === 'sopr-todo') return 'SOPR';
+  if (st === 'inst-todo') return 'INST';
+  if (st === 'attesa')    return 'sopr ✓';
+  if (st === 'completato')return 'fatto ✓';
+  if (st === 'sospeso')   return 'sospeso';
+  return '';
+}
+
 function copyPlanList() {
   const stops = STATE.dayPlan.map(id => PV_BY_ID[id]).filter(Boolean);
   if (stops.length === 0) return;
+  // Formato a colonne fisse: tappa, tipo, PV, comune (prov), indirizzo.
+  // Padding leggero per leggibilità su WhatsApp/Note. Riga totale in coda.
+  let prev = STATE.position, totKm = 0;
+  const padR = (s, n) => (s + ' '.repeat(n)).slice(0, n);
   const lines = stops.map((p, i) => {
     const d = pvDisplay(p);
-    return `${i + 1}. PV ${p.pv} — ${d.comune} (${d.prov})${d.indirizzo ? ', ' + d.indirizzo : ''}`;
+    const k = planStopKind(p) || '—';
+    const dist = prev ? `  +${Math.round(haversine(prev, p))}km` : '';
+    if (prev) totKm += haversine(prev, p);
+    prev = p;
+    const head = `${String(i + 1).padStart(2, '0')}.  ${padR(k, 7)} PV ${p.pv}`;
+    const where = `${d.comune}${d.prov ? ' ('+d.prov+')' : ''}`;
+    const addr = d.indirizzo ? `\n     ${d.indirizzo}` : '';
+    return `${head}  ${where}${dist}${addr}`;
   });
-  const text = `Piano giornata — ${stops.length} tappe\n` + lines.join('\n');
+  const counts = stops.reduce((acc, p) => {
+    const k = planStopKind(p);
+    if (k === 'SOPR') acc.sopr++;
+    else if (k === 'INST') acc.inst++;
+    else acc.other++;
+    return acc;
+  }, { sopr: 0, inst: 0, other: 0 });
+  const summary = [
+    counts.inst ? `${counts.inst} installazioni` : null,
+    counts.sopr ? `${counts.sopr} sopralluoghi` : null,
+    counts.other ? `${counts.other} altri` : null,
+  ].filter(Boolean).join(' · ');
+  const header = `📅 Piano giornata — ${stops.length} tappe${summary ? ` (${summary})` : ''}\n≈ ${Math.round(totKm)} km in linea d'aria\n`;
+  const text = header + '\n' + lines.join('\n');
   copyTextSafe(text, 'Lista PV copiata');
 }
 
@@ -2384,6 +2473,13 @@ async function syncNow(interactive) {
     if (JSON.stringify(merged) !== JSON.stringify(STATE.userState)) {
       STATE.userState = merged;
       await Store.set('userState', JSON.stringify(STATE.userState));
+      // Riallinea il piano dal merge se il server aveva una versione più recente
+      const sp = STATE.userState.__dayPlan;
+      if (sp && Array.isArray(sp.plan)) {
+        STATE.dayPlan = sp.plan.filter(id => Number.isInteger(id));
+        renderPlanUI();
+        if (document.getElementById('planPop').classList.contains('open')) renderPlanSheet();
+      }
       refreshAllMarkers(); renderCounters(); renderRegionStats(); renderList();
       renderDrawings();
       if (STATE.view === 'dashboard') renderDashboard();
@@ -2598,16 +2694,27 @@ async function loadFromStorage() {
 
   if (!Array.isArray(STATE.filters.regions)) STATE.filters.regions = [];
 
-  try {
-    const plan = JSON.parse(await Store.get('dayPlan') || '[]');
-    if (Array.isArray(plan)) STATE.dayPlan = plan.filter(id => Number.isInteger(id));
-  } catch(e) {}
+  // Piano giornata: fonte primaria è userState.__dayPlan (sincronizzato);
+  // fallback Store legacy 'dayPlan' solo se userState non ne ha ancora una.
+  const synced = STATE.userState.__dayPlan;
+  if (synced && Array.isArray(synced.plan)) {
+    STATE.dayPlan = synced.plan.filter(id => Number.isInteger(id));
+  } else {
+    try {
+      const plan = JSON.parse(await Store.get('dayPlan') || '[]');
+      if (Array.isArray(plan)) STATE.dayPlan = plan.filter(id => Number.isInteger(id));
+    } catch(e) {}
+  }
 
   STATE.firstTipSeen = !!(await Store.get('firstTipSeen'));
 }
 
 function saveDayPlan() {
-  Store.set('dayPlan', JSON.stringify(STATE.dayPlan));
+  // Il piano vive nello userState come chiave riservata __dayPlan: così
+  // viaggia gratis col sync multi-dispositivo (merge LWW su updatedAt) e
+  // finisce anche nei backup/restore.
+  STATE.userState.__dayPlan = { plan: STATE.dayPlan.slice(), updatedAt: Date.now() };
+  saveUserState();
 }
 
 function dismissFirstTip() {
@@ -2684,7 +2791,7 @@ function toast(msg, ms=1800) {
 
 // Build stamp visibile all'utente per capire se il browser sta servendo la versione
 // vecchia dalla cache. Bumpare ad ogni release significativa.
-const APP_VERSION = '2026-06-10.1';
+const APP_VERSION = '2026-06-10.2';
 
 const MAP_THEMES = {
   light: {
@@ -2706,6 +2813,13 @@ const MAP_THEMES = {
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     bg: '#1a1a1a', maxZoom: 19, subdomains: '',
     attribution: 'Tiles © <a href="https://www.esri.com">ESRI</a>',
+  },
+  // Tema 'navigazione': strade ben in evidenza con gerarchia chiara
+  // (autostrade gialle, statali arancioni), stile simile a Google Maps.
+  streets: {
+    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+    bg: '#fdfaf6', maxZoom: 20, subdomains: 'abcd',
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OSM</a> · CARTO',
   },
 };
 
@@ -3082,7 +3196,7 @@ function renderDetail(p) {
   const status = statusOf(p);
   const us = STATE.userState[p.pv] || {};
 
-  document.getElementById('detailPv').textContent = `PV · ${p.pv}`;
+  document.getElementById('detailPv').innerHTML = `<span class="pv-lbl">PV</span><span class="pv-num">${p.pv}</span>`;
   document.getElementById('detailBadge').innerHTML =
     `<button class="task-badge ${status} state-trigger" onclick="openStatePicker(${p.pv})" title="Cambia stato">${BADGE_LABEL[status] || status} <span class="state-caret">▾</span></button>`;
   const disp = pvDisplay(p);
@@ -3876,6 +3990,7 @@ async function init() {
   // Piano giornata + lasso di selezione + disegno
   document.getElementById('planPill').addEventListener('click', openPlanSheet);
   document.getElementById('planPopBackdrop').addEventListener('click', closePlanSheet);
+  document.getElementById('planPopClose').addEventListener('click', closePlanSheet);
   renderPlanUI();
   initLasso();
   initDraw();
