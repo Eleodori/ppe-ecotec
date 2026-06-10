@@ -149,6 +149,19 @@ header {
 @media (max-width: 380px) {
   .counters { display: none; }
 }
+.sync-dot {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-muted);
+  border: 2px solid var(--surface);
+  align-self: center;
+}
+.sync-dot.ok { background: var(--done); }
+.sync-dot.busy { background: var(--todo); animation: pulse-dot 1s ease-in-out infinite; }
+.sync-dot.err { background: var(--sospeso); }
+@keyframes pulse-dot { 50% { opacity: .4; } }
+
 .icon-btn:hover { background: var(--surface-2); color: var(--text); }
 .icon-btn:active { transform: scale(.95); }
 .icon-btn.active { color: var(--me); background: rgba(59,130,246,.15); }
@@ -366,6 +379,18 @@ aside {
 .edit-actions { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
 .edit-actions .btn { flex: 1 1 auto; padding: 9px 10px; font-size: 13px; }
 .edit-actions .btn.ghost-undo { flex-basis: 100%; margin-bottom: 4px; }
+
+/* Import stati da elenco */
+.import-hint { font-size: 12px; color: var(--text-dim); line-height: 1.5; margin-bottom: 10px; }
+.diff-group { margin-bottom: 10px; }
+.diff-group-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
+.diff-group-title.chg { color: var(--todo); }
+.diff-group-title.warn { color: var(--sospeso); }
+.diff-group-title.ok { color: var(--text-muted); }
+.diff-row { font-size: 12px; padding: 3px 0; border-bottom: 1px solid var(--surface-2); display: flex; gap: 6px; align-items: baseline; }
+.diff-row .mono { font-size: 11px; }
+.diff-arrow { color: var(--text-muted); }
+.diff-summary { font-size: 13px; font-weight: 600; margin-bottom: 10px; }
 .edit-pop-backdrop {
   position: fixed; inset: 0; z-index: 2499;
   background: rgba(0,0,0,.3);
@@ -879,6 +904,23 @@ aside {
 .econ-tariff-unit { font-size: 11px; color: var(--text-muted); }
 .econ-info { font-size: 11px; color: var(--text-muted); margin-top: 8px; line-height: 1.5; }
 
+/* === Report mensile === */
+.month-row {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 12px; margin-bottom: 6px;
+}
+.month-name { font-size: 13px; font-weight: 600; text-transform: capitalize; flex: 1; }
+.month-stats { font-size: 11px; color: var(--text-muted); }
+.month-eur { font-size: 14px; font-weight: 700; color: var(--done); }
+.month-csv {
+  width: 30px; height: 30px; border-radius: 6px;
+  display: grid; place-items: center;
+  background: var(--surface-2); color: var(--text-dim);
+  font-size: 13px; flex-shrink: 0;
+}
+.month-csv:active { background: var(--me); color: white; }
+
 /* === Block 2: Region progress === */
 .reg-progress-row {
   display: flex; align-items: center; gap: 10px;
@@ -983,6 +1025,7 @@ aside {
         <span class="cg-total mono" id="c-inst-total">·</span>
       </div>
     </div>
+    <button class="sync-dot" id="syncDot" title="Stato sincronizzazione" style="display:none"></button>
     <button class="icon-btn" id="locateBtn" title="Centra su di me">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
     </button>
@@ -1065,6 +1108,11 @@ aside {
     </div>
 
     <div class="dash-section">
+      <div class="dash-title">Guadagni per mese</div>
+      <div id="dashMonthly"></div>
+    </div>
+
+    <div class="dash-section">
       <div class="dash-title">Avanzamento per regione</div>
       <div id="dashRegionProgress"></div>
     </div>
@@ -1112,6 +1160,7 @@ aside {
     <button id="btnExportJson">⬇ Backup (JSON)</button>
     <button id="btnExportCsv">⬇ Completati (CSV)</button>
     <button id="btnImportJson">⬆ Importa backup</button>
+    <button id="btnImportStates">📑 Aggiorna stati da elenco</button>
     <hr>
     <div class="menu-section">Stile mappa</div>
     <div class="theme-grid" id="themeGrid">
@@ -1152,6 +1201,9 @@ aside {
     <button class="region-pick" data-region="VALLE DAOSTA"><span>Valle d'Aosta</span><span class="region-check">○</span></button>
   </div>
 
+  <div class="region-pop-backdrop" id="restorePopBackdrop"></div>
+  <div class="region-pop" id="restorePop"></div>
+
   <div class="state-pop-backdrop" id="statePopBackdrop"></div>
   <div class="state-pop" id="statePop">
     <div class="menu-section">Cambia stato del PV</div>
@@ -1169,6 +1221,26 @@ aside {
     <div class="menu-section">Piano giornata</div>
     <div id="planStops"></div>
     <div class="plan-actions" id="planActions"></div>
+  </div>
+
+  <div class="edit-pop-backdrop" id="importPopBackdrop"></div>
+  <div class="edit-pop" id="importPop">
+    <div class="menu-section">Aggiorna stati da elenco</div>
+    <div id="importStep1">
+      <p class="import-hint">Incolla le righe dell'elenco (copiate da PDF o Excel). Bastano il codice PV e l'attività: INSTALLAZIONE, SOPRALLUOGO o SOSPESA. Le righe senza PV vengono ignorate.</p>
+      <textarea id="importText" class="notes-input" style="min-height:150px;font-size:12px" placeholder="47574  S.P FRANCESCA 123  VERDELLINO  BG  LOMBARDIA  INSTALLAZIONE&#10;41839  S.S. 142 KM 6,625  VIGLIANO  BI  PIEMONTE  SOPRALLUOGO&#10;…"></textarea>
+      <div class="edit-actions">
+        <button class="btn" id="importCancel">Annulla</button>
+        <button class="btn primary" id="importAnalyze">Analizza →</button>
+      </div>
+    </div>
+    <div id="importStep2" style="display:none">
+      <div id="importDiff"></div>
+      <div class="edit-actions">
+        <button class="btn" id="importBack">← Indietro</button>
+        <button class="btn primary" id="importApply">Applica</button>
+      </div>
+    </div>
   </div>
 
   <div class="edit-pop-backdrop" id="editPopBackdrop"></div>
@@ -1275,10 +1347,85 @@ function switchView(view) {
 
 function renderDashboard() {
   renderEconomicBlock();
+  renderMonthlyReport();
   renderRegionProgress();
   renderActivityHistory();
   renderQuickStats();
   renderClusters(); // async, updates dashClusters when ready
+}
+
+// === Report mensile (supporto fatturazione) ===
+// Raggruppa per mese i lavori fatti usando i timestamp di sopralluoghi e
+// installazioni; le tariffe sono quelle correnti (REGION_TARIFF + soprTariff).
+function monthlyEarnings() {
+  const soprT = STATE.soprTariff || 0;
+  const months = {}; // 'YYYY-MM' → { inst, sopr, eur, rows: [] }
+  for (const p of PVS) {
+    const e = effectiveFlags(p);
+    const instTariff = REGION_TARIFF[p.regione] || DEFAULT_INST_TARIFF;
+    if (e.instFatta && e.instTs) {
+      const m = new Date(e.instTs).toISOString().slice(0, 7);
+      (months[m] ||= { inst: 0, sopr: 0, eur: 0, rows: [] });
+      months[m].inst++; months[m].eur += instTariff;
+      months[m].rows.push({ ts: e.instTs, tipo: 'Installazione', pv: p.pv, comune: pvDisplay(p).comune, regione: p.regione, eur: instTariff });
+    }
+    if (e.soprFatto && e.soprTs) {
+      const m = new Date(e.soprTs).toISOString().slice(0, 7);
+      (months[m] ||= { inst: 0, sopr: 0, eur: 0, rows: [] });
+      months[m].sopr++; months[m].eur += soprT;
+      months[m].rows.push({ ts: e.soprTs, tipo: 'Sopralluogo', pv: p.pv, comune: pvDisplay(p).comune, regione: p.regione, eur: soprT });
+    }
+  }
+  return months;
+}
+
+function renderMonthlyReport() {
+  const el = document.getElementById('dashMonthly');
+  if (!el) return;
+  const months = monthlyEarnings();
+  const keys = Object.keys(months).sort().reverse();
+  if (keys.length === 0) {
+    el.innerHTML = '<div class="activity-empty">Nessun lavoro con data registrata.</div>';
+    return;
+  }
+  const fmtMonth = m => new Date(m + '-01T12:00:00').toLocaleDateString('it-IT', { month: 'long', year: 'numeric' });
+  el.innerHTML = keys.map(m => {
+    const d = months[m];
+    const parts = [];
+    if (d.inst) parts.push(`${d.inst} inst`);
+    if (d.sopr) parts.push(`${d.sopr} sopr`);
+    return `<div class="month-row">
+      <div class="month-name">${fmtMonth(m)}</div>
+      <div class="month-stats">${parts.join(' + ')}</div>
+      <div class="month-eur mono">€ ${d.eur.toLocaleString('it-IT')}</div>
+      <button class="month-csv" data-month="${m}" title="Esporta CSV del mese">⬇</button>
+    </div>`;
+  }).join('');
+  if ((STATE.soprTariff || 0) === 0) {
+    el.innerHTML += '<div class="econ-info">Sopralluoghi conteggiati a €0: imposta la tariffa qui sopra per includerli.</div>';
+  }
+  el.querySelectorAll('.month-csv').forEach(btn => {
+    btn.addEventListener('click', () => exportMonthCsv(btn.dataset.month));
+  });
+}
+
+function exportMonthCsv(month) {
+  const months = monthlyEarnings();
+  const d = months[month];
+  if (!d) return;
+  const rows = [['Data', 'Tipo', 'PV', 'Comune', 'Regione', 'Compenso EUR']];
+  d.rows.sort((a, b) => a.ts - b.ts).forEach(r => {
+    rows.push([new Date(r.ts).toLocaleDateString('it-IT'), r.tipo, r.pv, r.comune, r.regione, r.eur]);
+  });
+  rows.push(['', '', '', '', 'TOTALE', d.eur]);
+  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `pee_report_${month}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast(`Report ${month} esportato`);
 }
 
 function renderRegionProgress() {
@@ -1602,7 +1749,10 @@ function renderPlanUI() {
   if (!pill) return;
   const n = STATE.dayPlan.length;
   pill.classList.toggle('show', n > 0);
-  if (lbl) lbl.textContent = n === 1 ? '1 tappa' : `${n} tappe`;
+  if (lbl) {
+    const done = STATE.dayPlan.filter(id => PV_BY_ID[id] && statusOf(PV_BY_ID[id]) === 'completato').length;
+    lbl.textContent = done > 0 ? `${done}/${n} fatte` : (n === 1 ? '1 tappa' : `${n} tappe`);
+  }
 }
 
 function openPlanSheet() {
@@ -1671,16 +1821,29 @@ function renderPlanSheet() {
     });
   });
   const nLinks = buildPlanLinks().length;
+  const nDone = STATE.dayPlan.filter(id => PV_BY_ID[id] && statusOf(PV_BY_ID[id]) === 'completato').length;
   actsEl.innerHTML = `
     <button class="btn" id="planOptimize">🧭 Ottimizza ordine${STATE.position ? ' (da qui)' : ''}</button>
     <button class="btn navigate" id="planOpenMaps">▸ Apri in Google Maps${nLinks > 1 ? ' (tratta 1)' : ''}</button>
     <button class="btn" id="planCopyLinks">🔗 Copia link percorso${nLinks > 1 ? ` (${nLinks} tratte)` : ''}</button>
     <button class="btn" id="planCopyList">📋 Copia lista PV</button>
+    ${navigator.share ? `<button class="btn" id="planShare">📤 Condividi giro</button>` : ''}
+    ${nDone > 0 ? `<button class="btn" id="planRemoveDone">✓ Rimuovi ${nDone} tappe fatte</button>` : ''}
     <button class="btn ghost-undo" id="planClear">🗑 Svuota piano</button>`;
   document.getElementById('planOptimize').addEventListener('click', optimizePlan);
   document.getElementById('planOpenMaps').addEventListener('click', openPlanInMaps);
   document.getElementById('planCopyLinks').addEventListener('click', copyPlanLinks);
   document.getElementById('planCopyList').addEventListener('click', copyPlanList);
+  const shareBtn = document.getElementById('planShare');
+  if (shareBtn) shareBtn.addEventListener('click', sharePlan);
+  const removeDoneBtn = document.getElementById('planRemoveDone');
+  if (removeDoneBtn) removeDoneBtn.addEventListener('click', () => {
+    STATE.dayPlan = STATE.dayPlan.filter(id => !PV_BY_ID[id] || statusOf(PV_BY_ID[id]) !== 'completato');
+    saveDayPlan();
+    renderPlanUI();
+    renderPlanSheet();
+    toast('Tappe completate rimosse dal piano');
+  });
   document.getElementById('planClear').addEventListener('click', () => {
     if (!confirm('Svuotare il piano giornata?')) return;
     STATE.dayPlan = [];
@@ -1688,6 +1851,26 @@ function renderPlanSheet() {
     renderPlanUI();
     renderPlanSheet();
   });
+}
+
+// Condivisione nativa (WhatsApp ecc.): lista tappe + link delle tratte.
+async function sharePlan() {
+  const stops = STATE.dayPlan.map(id => PV_BY_ID[id]).filter(Boolean);
+  if (stops.length === 0) return;
+  const lines = stops.map((p, i) => {
+    const d = pvDisplay(p);
+    return `${i + 1}. PV ${p.pv} — ${d.comune} (${d.prov})`;
+  });
+  const links = buildPlanLinks();
+  const linkText = links.length === 1
+    ? links[0]
+    : links.map((url, i) => `Tratta ${i + 1}/${links.length}: ${url}`).join('\n');
+  const text = `Piano giornata — ${stops.length} tappe\n${lines.join('\n')}\n\n${linkText}`;
+  try {
+    await navigator.share({ title: 'Piano giornata PEE', text });
+  } catch (err) {
+    if (err.name !== 'AbortError') copyTextSafe(text, 'Condivisione non riuscita: testo copiato');
+  }
 }
 
 // Spezza il piano in tratte da max 10 tappe (limite Google Maps) e genera un
@@ -2164,9 +2347,25 @@ function schedulePush() {
   STATE._syncTimer = setTimeout(() => syncNow(false), 3000);
 }
 
+// Pallino di stato sync nell'header: verde = ok, giallo = in corso,
+// rosso = errore. Nascosto se il sync non è configurato. Tap = sync manuale.
+function renderSyncDot() {
+  const dot = document.getElementById('syncDot');
+  if (!dot) return;
+  if (!STATE.syncCode) { dot.style.display = 'none'; return; }
+  dot.style.display = '';
+  dot.classList.toggle('busy', STATE._syncBusy);
+  dot.classList.toggle('err', !STATE._syncBusy && !!STATE.syncError);
+  dot.classList.toggle('ok', !STATE._syncBusy && !STATE.syncError && !!STATE.lastSyncTs);
+  dot.title = STATE.syncError
+    ? 'Sync in errore: ' + STATE.syncError + ' — tocca per riprovare'
+    : STATE.lastSyncTs ? 'Sincronizzato ' + fmtTs(STATE.lastSyncTs) + ' — tocca per sincronizzare' : 'Sync non ancora eseguito';
+}
+
 async function syncNow(interactive) {
   if (!STATE.syncCode || STATE._syncBusy) return;
   STATE._syncBusy = true;
+  renderSyncDot();
   try {
     const resp = await fetch(SYNC_URL, {
       method: 'POST',
@@ -2194,6 +2393,7 @@ async function syncNow(interactive) {
   } finally {
     STATE._syncBusy = false;
     renderSyncMenu();
+    renderSyncDot();
   }
 }
 
@@ -2208,6 +2408,7 @@ function generateSyncCode() {
 }
 
 function renderSyncMenu() {
+  renderSyncDot();
   const el = document.getElementById('syncSection');
   if (!el) return;
   if (!STATE.syncCode) {
@@ -2219,18 +2420,86 @@ function renderSyncMenu() {
     el.innerHTML = `
       <button id="btnSyncNow">🔄 Sincronizza ora<span class="menu-check mono" style="font-size:10px">${status}</span></button>
       <button id="btnSyncCode">🔑 Codice: <span class="mono">${STATE.syncCode}</span></button>
+      <button id="btnSyncRestore">🕘 Ripristina versione precedente</button>
       <button id="btnSyncOff">✕ Scollega questo dispositivo</button>`;
     document.getElementById('btnSyncNow').addEventListener('click', () => syncNow(true));
     document.getElementById('btnSyncCode').addEventListener('click', async () => {
       try { await navigator.clipboard.writeText(STATE.syncCode); toast('Codice copiato'); }
       catch { prompt('Codice sync (copialo a mano):', STATE.syncCode); }
     });
+    document.getElementById('btnSyncRestore').addEventListener('click', openRestorePicker);
     document.getElementById('btnSyncOff').addEventListener('click', () => {
       if (!confirm('Scollegare il sync su questo dispositivo?\nI dati locali restano, smettono solo di sincronizzarsi.')) return;
       STATE.syncCode = null;
       saveSettings();
       renderSyncMenu();
     });
+  }
+}
+
+// === Ripristino snapshot ===
+// Il server tiene uno snapshot al giorno (ultimi 30): qui si sceglie la data
+// e lo stato viene ripristinato OVUNQUE (push con replace, niente merge).
+async function openRestorePicker() {
+  document.getElementById('menuPop').classList.remove('open');
+  toast('Carico versioni disponibili…');
+  let snapshots = [];
+  try {
+    const resp = await fetch(`${SYNC_URL}?code=${encodeURIComponent(STATE.syncCode)}&snapshots=1`);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    snapshots = (await resp.json()).snapshots || [];
+  } catch (err) {
+    toast('Errore nel recupero versioni: ' + err.message, 3500);
+    return;
+  }
+  if (snapshots.length === 0) { toast('Nessuna versione salvata (gli snapshot si creano ad ogni sync)', 3500); return; }
+  const pop = document.getElementById('restorePop');
+  const fmtD = d => new Date(d + 'T12:00:00').toLocaleDateString('it-IT', { weekday: 'short', day: '2-digit', month: 'short' });
+  pop.innerHTML = `<div class="menu-section">Ripristina lo stato com'era a fine giornata</div>` +
+    snapshots.map(s => `<button class="restore-pick" data-date="${s.date}"><span>${fmtD(s.date)}</span><span class="region-check mono" style="font-size:10px">${s.date}</span></button>`).join('');
+  pop.classList.add('open');
+  document.getElementById('restorePopBackdrop').classList.add('open');
+  pop.querySelectorAll('.restore-pick').forEach(btn => {
+    btn.addEventListener('click', () => restoreSnapshot(btn.dataset.date));
+  });
+}
+function closeRestorePicker() {
+  document.getElementById('restorePop').classList.remove('open');
+  document.getElementById('restorePopBackdrop').classList.remove('open');
+}
+
+async function restoreSnapshot(date) {
+  closeRestorePicker();
+  if (!confirm(`Ripristinare lo stato al ${date}?\n\nLo stato attuale (su TUTTI i dispositivi sincronizzati) verrà sostituito da quella versione. Lo stato di oggi resta comunque salvato come snapshot odierno.`)) return;
+  try {
+    const resp = await fetch(`${SYNC_URL}?code=${encodeURIComponent(STATE.syncCode)}&restore=${date}`);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const snap = await resp.json();
+    if (!snap.userState) throw new Error('snapshot vuoto');
+    // Ristampa updatedAt su tutte le entry: senza questo, il merge LWW dei
+    // dispositivi non ancora ripristinati farebbe "rivincere" lo stato vecchio
+    // al loro prossimo push (le loro entry avrebbero timestamp più recenti).
+    const nowTs = Date.now();
+    for (const v of Object.values(snap.userState)) {
+      if (v && typeof v === 'object') v.updatedAt = nowTs;
+    }
+    STATE.userState = snap.userState;
+    await Store.set('userState', JSON.stringify(STATE.userState));
+    // Push con replace: gli altri dispositivi riceveranno questo stato al
+    // prossimo sync (il loro merge non può "vincere" perché il server è già sostituito)
+    await fetch(SYNC_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: STATE.syncCode, userState: STATE.userState, replace: true }),
+    });
+    refreshAllMarkers(); renderCounters(); renderRegionStats(); renderList(); renderDrawings();
+    if (STATE.view === 'dashboard') renderDashboard();
+    STATE.lastSyncTs = Date.now();
+    STATE.syncError = null;
+    renderSyncMenu();
+    toast(`✓ Stato ripristinato al ${date}`, 3500);
+  } catch (err) {
+    toast('Ripristino fallito: ' + err.message, 4000);
   }
 }
 
@@ -2410,7 +2679,7 @@ function toast(msg, ms=1800) {
 
 // Build stamp visibile all'utente per capire se il browser sta servendo la versione
 // vecchia dalla cache. Bumpare ad ogni release significativa.
-const APP_VERSION = '2026-06-09.6';
+const APP_VERSION = '2026-06-09.7';
 
 const MAP_THEMES = {
   light: {
@@ -2922,6 +3191,7 @@ function _afterAction(pvId, p, msg) {
   renderRegionStats();
   renderList();
   renderDetail(p);
+  renderPlanUI(); // avanzamento "N/M fatte" nella pill del piano
   // Se l'utente è (o torna) in dashboard, rerendererizza per riflettere il cambio stato
   if (STATE.view === 'dashboard') renderDashboard();
   if (msg) toast(msg);
@@ -3009,6 +3279,70 @@ window.setPvState = _safeAction('setPvState', (pvId, p, target) => {
   STATE.userState[pvId] = next;
   _afterAction(pvId, p, `PV ${pvId} — stato: ${BADGE_LABEL[target] || target}`);
 });
+
+// === Import stati da elenco (testo incollato da PDF/Excel di Serena) ===
+// Override più "leggeri" di quelli del cambio stato manuale: per inst-todo
+// NON forziamo soprFatto=true, così i conteggi dei sopralluoghi non si gonfiano
+// per PV che vanno diretti all'installazione.
+const IMPORT_OVERRIDES = {
+  'sopr-todo': { soprRich: true, soprFatto: false, instRich: false, instFatta: false, sospeso: false, archive: false },
+  'inst-todo': { soprRich: false, instRich: true, instFatta: false, sospeso: false, archive: false },
+  'sospeso':   { sospeso: true },
+};
+
+function parseStateList(text) {
+  const out = [];
+  for (const line of (text || '').split(/\r?\n/)) {
+    const pvM = line.match(/\b(\d{5})\b/);
+    if (!pvM) continue;
+    const U = line.toUpperCase();
+    let desired = null;
+    if (/SOSPES/.test(U)) desired = 'sospeso';
+    else if (/SOPRALL|RILIEV/.test(U)) desired = 'sopr-todo';
+    else if (/INSTALL/.test(U)) desired = 'inst-todo';
+    if (desired) out.push({ pv: parseInt(pvM[1]), desired });
+  }
+  return out;
+}
+
+// Confronta l'elenco con lo stato attuale e produce il diff da mostrare.
+// Regole di buon senso: i completati non si toccano mai; un PV in attesa con
+// richiesta SOPRALLUOGO è già a posto (il sopralluogo l'hai fatto tu).
+function computeStateDiff(items) {
+  const changes = [], notFound = [], same = [], anomalies = [];
+  const seen = new Set();
+  for (const { pv, desired } of items) {
+    if (seen.has(pv)) continue;
+    seen.add(pv);
+    const p = PV_BY_ID[pv];
+    if (!p) { notFound.push(pv); continue; }
+    const cur = statusOf(p);
+    if (cur === desired) { same.push(pv); continue; }
+    if (cur === 'completato') { anomalies.push({ pv, cur, desired }); continue; }
+    if (desired === 'sopr-todo' && cur === 'attesa') { same.push(pv); continue; }
+    changes.push({ pv, cur, desired });
+  }
+  return { changes, notFound, same, anomalies };
+}
+
+function applyStateDiff(changes) {
+  const now = Date.now();
+  for (const { pv, desired } of changes) {
+    const cur = STATE.userState[pv] || {};
+    const next = { ...cur, updatedAt: now, override: { ...IMPORT_OVERRIDES[desired] } };
+    if (desired === 'sopr-todo') {
+      next.sopralluogo_fatto_ts = null;
+      next.installazione_richiesta_ts = null;
+      next.installazione_fatta_ts = null;
+    } else if (desired === 'inst-todo') {
+      next.installazione_fatta_ts = null;
+    }
+    STATE.userState[pv] = next;
+  }
+  saveUserState();
+  refreshAllMarkers(); renderCounters(); renderRegionStats(); renderList(); renderPlanUI();
+  if (STATE.view === 'dashboard') renderDashboard();
+}
 
 // Salva override locali di comune/prov/indirizzo/ragSoc. Passare null/'' come fields
 // resetta gli override e ripristina i valori master.
@@ -3425,6 +3759,63 @@ async function init() {
     if (e.target.files[0]) importJson(e.target.files[0]);
     e.target.value = '';
   });
+
+  // Import stati da elenco: incolla → analizza (diff) → applica
+  const importPop = document.getElementById('importPop');
+  const importBackdrop = document.getElementById('importPopBackdrop');
+  let _importChanges = [];
+  const closeImportPop = () => {
+    importPop.classList.remove('open');
+    importBackdrop.classList.remove('open');
+    document.getElementById('importStep1').style.display = '';
+    document.getElementById('importStep2').style.display = 'none';
+    _importChanges = [];
+  };
+  document.getElementById('btnImportStates').addEventListener('click', () => {
+    menuPop.classList.remove('open');
+    importPop.classList.add('open');
+    importBackdrop.classList.add('open');
+  });
+  importBackdrop.addEventListener('click', closeImportPop);
+  document.getElementById('importCancel').addEventListener('click', closeImportPop);
+  document.getElementById('importBack').addEventListener('click', () => {
+    document.getElementById('importStep1').style.display = '';
+    document.getElementById('importStep2').style.display = 'none';
+  });
+  document.getElementById('importAnalyze').addEventListener('click', () => {
+    const items = parseStateList(document.getElementById('importText').value);
+    if (items.length === 0) { toast('Nessuna riga valida: servono PV (5 cifre) + attività', 3500); return; }
+    const diff = computeStateDiff(items);
+    _importChanges = diff.changes;
+    const lbl = s => BADGE_LABEL[s] || s;
+    const pvName = pv => { const p = PV_BY_ID[pv]; return p ? pvDisplay(p).comune : ''; };
+    let html = `<div class="diff-summary">${items.length} righe lette · ${diff.changes.length} modifiche da applicare</div>`;
+    if (diff.changes.length) {
+      html += `<div class="diff-group"><div class="diff-group-title chg">Cambiano stato (${diff.changes.length})</div>` +
+        diff.changes.map(c => `<div class="diff-row"><span class="mono">${c.pv}</span><span>${pvName(c.pv)}</span><span class="diff-arrow">·</span><span>${lbl(c.cur)} <span class="diff-arrow">→</span> <b>${lbl(c.desired)}</b></span></div>`).join('') + `</div>`;
+    }
+    if (diff.anomalies.length) {
+      html += `<div class="diff-group"><div class="diff-group-title warn">Già completati — non verranno toccati (${diff.anomalies.length})</div>` +
+        diff.anomalies.map(c => `<div class="diff-row"><span class="mono">${c.pv}</span><span>${pvName(c.pv)}</span><span class="diff-arrow">· elenco dice: ${lbl(c.desired)}</span></div>`).join('') + `</div>`;
+    }
+    if (diff.notFound.length) {
+      html += `<div class="diff-group"><div class="diff-group-title warn">PV non in archivio (${diff.notFound.length})</div><div class="diff-row mono">${diff.notFound.join(', ')}</div></div>`;
+    }
+    if (diff.same.length) {
+      html += `<div class="diff-group"><div class="diff-group-title ok">Già allineati (${diff.same.length})</div></div>`;
+    }
+    document.getElementById('importDiff').innerHTML = html;
+    document.getElementById('importApply').style.display = diff.changes.length ? '' : 'none';
+    document.getElementById('importStep1').style.display = 'none';
+    document.getElementById('importStep2').style.display = '';
+  });
+  document.getElementById('importApply').addEventListener('click', () => {
+    if (_importChanges.length === 0) { closeImportPop(); return; }
+    if (!confirm(`Applicare ${_importChanges.length} modifiche di stato?\n\nIn caso di errore puoi tornare indietro con "Ripristina versione precedente" nel menu sync.`)) return;
+    applyStateDiff(_importChanges);
+    toast(`✓ ${_importChanges.length} PV aggiornati`, 3000);
+    closeImportPop();
+  });
   document.getElementById('btnAbout').addEventListener('click', () => {
     const arch = PVS.filter(p => p.archivio_storico).length;
     menuPop.classList.remove('open');
@@ -3492,6 +3883,8 @@ async function init() {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && STATE.syncCode) syncNow(false);
   });
+  document.getElementById('syncDot').addEventListener('click', () => syncNow(true));
+  document.getElementById('restorePopBackdrop').addEventListener('click', closeRestorePicker);
 
   document.getElementById('bootMsg').classList.add('gone');
   document.getElementById('app').style.display = 'grid';
