@@ -135,16 +135,41 @@ async function pruneSnapshots(store, key) {
 
 // Merge per-PV: vince l'entry con updatedAt più recente (last-write-wins).
 // Un'entry presente solo da un lato viene sempre mantenuta.
+// Eccezione: il campo `photos` viene merge-unito per id (additivo), così
+// foto aggiunte in parallelo su dispositivi diversi non si perdono nel LWW.
 function mergeStates(remote, local) {
   if (!remote) return local;
   const out = { ...remote };
   for (const [pv, entry] of Object.entries(local)) {
     const cur = out[pv];
-    if (!cur || (entry.updatedAt || 0) >= (cur.updatedAt || 0)) {
-      out[pv] = entry;
-    }
+    if (!cur) { out[pv] = entry; continue; }
+    const winner = (entry.updatedAt || 0) >= (cur.updatedAt || 0) ? entry : cur;
+    const merged = { ...winner };
+    const photosMerged = mergePhotoLists(cur.photos, entry.photos);
+    if (photosMerged) merged.photos = photosMerged;
+    else delete merged.photos;
+    out[pv] = merged;
   }
   return out;
+}
+
+// Union per id; per id presenti su entrambi i lati vince quella con
+// deletedAt più recente, altrimenti l'aggiunta più recente.
+function mergePhotoLists(a, b) {
+  if (!Array.isArray(a) && !Array.isArray(b)) return null;
+  const byId = new Map();
+  const upsert = p => {
+    if (!p || !p.id) return;
+    const cur = byId.get(p.id);
+    if (!cur) { byId.set(p.id, p); return; }
+    const curTs = Math.max(cur.addedAt || 0, cur.deletedAt || 0);
+    const newTs = Math.max(p.addedAt || 0, p.deletedAt || 0);
+    if (newTs >= curTs) byId.set(p.id, p);
+  };
+  (a || []).forEach(upsert);
+  (b || []).forEach(upsert);
+  const out = Array.from(byId.values()).sort((x, y) => (x.addedAt || 0) - (y.addedAt || 0));
+  return out.length ? out : null;
 }
 
 // Il blob key è l'hash del codice: il codice resta l'unico segreto e non
