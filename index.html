@@ -2515,16 +2515,9 @@ async function syncNow(interactive) {
       const sp = STATE.userState.__dayPlan;
       if (sp && Array.isArray(sp.plan)) {
         STATE.dayPlan = sp.plan.filter(id => Number.isInteger(id));
-        renderPlanUI();
         if (document.getElementById('planPop').classList.contains('open')) renderPlanSheet();
       }
-      refreshAllMarkers(); renderCounters(); renderRegionStats(); renderList();
-      renderDrawings();
-      if (STATE.view === 'dashboard') renderDashboard();
-      // Non ri-renderizzare il detail se l'utente sta scrivendo lì dentro
-      // (es. nota di campo): il valore vive nel DOM fino al blur e andrebbe perso.
-      const editingDetail = document.activeElement && document.getElementById('detailSheet')?.contains(document.activeElement);
-      if (STATE.selectedPv && PV_BY_ID[STATE.selectedPv] && !editingDetail) renderDetail(PV_BY_ID[STATE.selectedPv]);
+      rerender('all');
     }
     // Se il merge locale ha prodotto qualcosa di diverso da ciò che il server
     // conosce, c'erano modifiche locali da propagare: pushale al prossimo giro.
@@ -2646,8 +2639,7 @@ async function restoreSnapshot(date) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code: STATE.syncCode, userState: STATE.userState, replace: true }),
     });
-    refreshAllMarkers(); renderCounters(); renderRegionStats(); renderList(); renderDrawings();
-    if (STATE.view === 'dashboard') renderDashboard();
+    rerender('all');
     STATE.lastSyncTs = Date.now();
     STATE.syncError = null;
     renderSyncMenu();
@@ -2809,6 +2801,45 @@ function updatePvEntry(pvId, producer) {
   return next;
 }
 
+// === rerender(scope) — pipeline di render unica (ADR-005) ===
+// Sostituisce il pattern "chiamo a mano i 5-6 render giusti" che era fonte di
+// bug (importJson saltava metà dei render). Ogni scope sa cosa rinfrescare.
+//
+//   scope === 'all'       → tutto (default, post-mutazione)
+//   scope === 'markers'   → solo mappa
+//   scope === 'list'      → contatori, lista, region-stats
+//   scope === 'plan'      → solo pill piano (per i marker fatti del piano)
+//   scope === 'detail'    → solo detail panel (rispettando editing)
+//
+// Le funzioni di render esistono come funzioni separate; rerender è solo lo
+// "switchboard". Niente reattività automatica per non introdurre framework
+// (vedi ADR-001).
+function rerender(scope) {
+  scope = scope || 'all';
+  const isAll = scope === 'all';
+
+  if (isAll || scope === 'markers') refreshAllMarkers();
+  if (isAll || scope === 'list') {
+    renderCounters();
+    renderRegionStats();
+    renderList();
+  }
+  if (isAll || scope === 'plan') renderPlanUI();
+  if (isAll) {
+    renderDrawings();
+  }
+  if (isAll || scope === 'detail') {
+    // Mai mentre l'utente sta scrivendo nel detail (M2): il valore vive nel
+    // DOM fino al blur, sarebbe persa la digitazione in corso.
+    const editingDetail = document.activeElement && document.getElementById('detailSheet')?.contains(document.activeElement);
+    if (STATE.selectedPv && PV_BY_ID[STATE.selectedPv] && !editingDetail) {
+      renderDetail(PV_BY_ID[STATE.selectedPv]);
+    }
+  }
+  // Dashboard: rinfresca solo se siamo (o si torna) sulla vista dashboard.
+  if (isAll && STATE.view === 'dashboard') renderDashboard();
+}
+
 // haversine → src/core/geo.js
 function fmtDist(km) {
   if (km == null) return '';
@@ -2831,7 +2862,7 @@ function toast(msg, ms=1800) {
 
 // Build stamp visibile all'utente per capire se il browser sta servendo la versione
 // vecchia dalla cache. Bumpare ad ogni release significativa.
-const APP_VERSION = '2026-06-13.4';
+const APP_VERSION = '2026-06-13.5';
 
 const MAP_THEMES = {
   light: {
@@ -3350,15 +3381,9 @@ function _safeAction(name, fn) {
 }
 
 function _afterAction(pvId, p, msg) {
-  saveUserState();
-  refreshMarker(pvId);
-  renderCounters();
-  renderRegionStats();
-  renderList();
-  renderDetail(p);
-  renderPlanUI(); // avanzamento "N/M fatte" nella pill del piano
-  // Se l'utente è (o torna) in dashboard, rerendererizza per riflettere il cambio stato
-  if (STATE.view === 'dashboard') renderDashboard();
+  // saveUserState già chiamato da updatePvEntry; refreshMarker(pvId) viene
+  // coperto da refreshAllMarkers in rerender('all').
+  rerender('all');
   if (msg) toast(msg);
 }
 
@@ -3421,8 +3446,7 @@ function applyStateDiff(changes) {
   for (const { pv, desired } of changes) {
     updatePvEntry(pv, (cur, now) => nextImportOverride(cur, desired, now));
   }
-  refreshAllMarkers(); renderCounters(); renderRegionStats(); renderList(); renderPlanUI();
-  if (STATE.view === 'dashboard') renderDashboard();
+  rerender('all');
 }
 
 // =====================================================================
@@ -3943,8 +3967,11 @@ function importJson(file) {
       if (!confirm('Importare il backup? Lo stato attuale sarà sovrascritto.')) return;
       const needsMigration = data.version !== 2 || Object.values(data.userState).some(v => v && ('fatto' in v || 'problema' in v));
       STATE.userState = needsMigration ? migrateUserState(data.userState) : data.userState;
+      // Riallinea il piano se l'import ne contiene uno (M3: prima si perdeva)
+      const sp = STATE.userState.__dayPlan;
+      if (sp && Array.isArray(sp.plan)) STATE.dayPlan = sp.plan.filter(id => Number.isInteger(id));
       saveUserState();
-      refreshAllMarkers(); renderCounters(); renderRegionStats(); renderList();
+      rerender('all'); // M3: include drawings, plan e dashboard, prima saltati
       toast('Backup importato');
     } catch(err) {
       alert('Errore: ' + err.message);
@@ -4077,7 +4104,7 @@ async function init() {
   regionBackdrop.addEventListener('click', closeRegionPop);
   document.getElementById('regionPickAll').addEventListener('click', () => {
     STATE.filters.regions = [];
-    renderFilters(); refreshAllMarkers(); renderCounters(); renderRegionStats(); renderList(); saveSettings();
+    renderFilters(); rerender('markers'); rerender('list'); saveSettings();
   });
   document.querySelectorAll('.region-pick').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -4092,7 +4119,7 @@ async function init() {
         else STATE.filters.regions.push(reg);
         if (STATE.filters.regions.length === 0) STATE.filters.regions = [];
       }
-      renderFilters(); refreshAllMarkers(); renderCounters(); renderRegionStats(); renderList(); saveSettings();
+      renderFilters(); rerender('markers'); rerender('list'); saveSettings();
     });
   });
 
