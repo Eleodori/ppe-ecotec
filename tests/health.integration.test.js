@@ -6,14 +6,14 @@ const assert = require('node:assert/strict');
  * Integration test del health-check con DAO Memory + override env.
  */
 async function makeFunction(env = {}) {
-  const { route, json, ApiError } = await import('../src/server/api/http.js');
+  const { route, json, ApiError, getMetrics } = await import('../src/server/api/http.js');
   const { makeMemoryDao } = await import('../src/server/dao/memory.js');
   const { z } = await import('zod');
   const dao = makeMemoryDao();
 
   const VERSION = env.COMMIT_REF || 'dev';
   const STARTED_AT = Date.now();
-  const querySchema = z.object({ deep: z.string().optional() });
+  const querySchema = z.object({ deep: z.string().optional(), metrics: z.string().optional() });
 
   const handler = route({
     GET: {
@@ -36,6 +36,9 @@ async function makeFunction(env = {}) {
             out.deps.blobsError = err.message;
           }
           out.deps.ors = env.ORS_API_KEY ? 'configured' : 'missing-key';
+        }
+        if (query.metrics) {
+          out.metrics = getMetrics();
         }
         if (out.status !== 'ok') throw new ApiError(503, 'DEGRADED', 'health check failed', out);
         return json(out);
@@ -78,6 +81,17 @@ test('health: COMMIT_REF viene esposto come version', async () => {
   const resp = await h(req());
   const body = await resp.json();
   assert.equal(body.version, 'abc1234');
+});
+
+test('health: GET ?metrics=1 → include snapshot metriche per-route', async () => {
+  const h = await makeFunction();
+  // Genero qualche richiesta per popolare le metriche del processo
+  await h(req('http://x/'));
+  await h(req('http://x/'));
+  const resp = await h(req('http://x/?metrics=1'));
+  const body = await resp.json();
+  assert.equal(typeof body.metrics, 'object');
+  assert.ok(Object.keys(body.metrics).length > 0, 'metrics non vuoto dopo qualche richiesta');
 });
 
 test('health: POST non supportato → 405', async () => {
