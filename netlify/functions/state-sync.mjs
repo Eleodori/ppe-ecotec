@@ -12,10 +12,12 @@
  * Storage astratto via DAO (src/server/dao/blobs.js).
  */
 
+import { getStore } from '@netlify/blobs';
 import syncMerge from '../../src/core/sync-merge.js';
 import { makeBlobsDao } from '../../src/server/dao/blobs.js';
 import { route, json, ApiError } from '../../src/server/api/http.js';
 import { dateSchema, stateSyncGetQuery, stateSyncPostBody } from '../../src/server/api/schemas.js';
+import { makeRateLimiter } from '../../src/server/api/rate-limit.js';
 
 const { mergeStates } = syncMerge;
 const dao = makeBlobsDao();
@@ -23,8 +25,29 @@ const dao = makeBlobsDao();
 const SNAP_KEEP_DAYS = 30;
 const MAX_STATE_BYTES = 2_000_000;
 
+// Rate-limit morbido: protezione DDoS, non quota. Un utente reale fa ~10
+// sync/min (push debounced 3s + visibilitychange). Capacity 60 + ricarica
+// 30/min = burst tollerato + spike di sync da più dispositivi connessi.
+const limiter = makeRateLimiter({
+  scope: 'sync',
+  capacity: 60,
+  refillPerSec: 30 / 60,
+  getStore: () => getStore('rate-limit'),
+});
+
+async function rateLimit(ctx) {
+  const r = await limiter.check(ctx.req);
+  if (!r.allowed) {
+    return json(
+      { error: 'RATE_LIMITED', message: `Troppe richieste. Riprova tra ~${r.retryAfterSec}s.` },
+      { status: 429, headers: { 'Retry-After': String(r.retryAfterSec) } }
+    );
+  }
+}
+
 export default route({
   GET: {
+    before: [rateLimit],
     query: stateSyncGetQuery,
     handler: async ({ query }) => {
       const { code, snapshots, restore } = query;
@@ -48,6 +71,7 @@ export default route({
   },
 
   POST: {
+    before: [rateLimit],
     body: stateSyncPostBody,
     handler: async ({ body }) => {
       const { code, userState, replace } = body;

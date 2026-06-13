@@ -7,15 +7,39 @@
  * ENV richieste: ORS_API_KEY (free tier: 2000 req/giorno, 40/min)
  */
 
+import { getStore } from '@netlify/blobs';
 import { makeBlobsDao } from '../../src/server/dao/blobs.js';
 import { route, json, ApiError } from '../../src/server/api/http.js';
 import { distanceMatrixBody } from '../../src/server/api/schemas.js';
+import { makeRateLimiter } from '../../src/server/api/rate-limit.js';
 
 const dao = makeBlobsDao();
 const ORS_MATRIX_URL = 'https://api.openrouteservice.org/v2/matrix/driving-car';
 
+// Rate-limit aggressivo: distance-matrix spende soldi/quota reali (ORS free tier:
+// 2000 req/giorno, 40/min globalmente). Capacity=20 burst + ricarica 10/min per IP.
+// Un client "normale" che usa l'app per pianificare anche 10 cluster di fila resta
+// dentro; uno script che brute-forza viene fermato subito.
+const orsLimiter = makeRateLimiter({
+  scope: 'ors',
+  capacity: 20,
+  refillPerSec: 10 / 60,
+  getStore: () => getStore('rate-limit'),
+});
+
+async function rateLimit(ctx) {
+  const r = await orsLimiter.check(ctx.req);
+  if (!r.allowed) {
+    return json(
+      { error: 'RATE_LIMITED', message: `Troppe richieste. Riprova tra ~${r.retryAfterSec}s.` },
+      { status: 429, headers: { 'Retry-After': String(r.retryAfterSec) } }
+    );
+  }
+}
+
 export default route({
   POST: {
+    before: [rateLimit],
     body: distanceMatrixBody,
     handler: async ({ body }) => {
       const { sources, destinations } = body;

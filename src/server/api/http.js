@@ -73,7 +73,7 @@ function errorResponse(status, code, message, detail) {
  * Ogni handler riceve un oggetto context: { req, url, query, body?, params? }
  * e ritorna una Response (o lancia ApiError).
  *
- * @param {Record<string, { handler: Function, body?: any, query?: any }>} routes
+ * @param {Record<string, { handler: Function, body?: any, query?: any, before?: Function[] }>} routes
  */
 export function route(routes) {
   return async function handler(req) {
@@ -94,6 +94,15 @@ export function route(routes) {
       }
 
       const ctx = { req, url, query: Object.fromEntries(url.searchParams) };
+
+      // Middleware "before" (es. rate limit): ognuno riceve ctx e può ritornare
+      // una Response — in tal caso interrompe la pipeline (es. 429 troppo veloce).
+      if (Array.isArray(cfg.before)) {
+        for (const mw of cfg.before) {
+          const r = await mw(ctx);
+          if (r instanceof Response) { status = r.status; return r; }
+        }
+      }
 
       // Validazione query con Zod (se presente)
       if (cfg.query) {
