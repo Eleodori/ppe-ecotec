@@ -65,6 +65,7 @@ Lo storage utente (sync code) usa `@netlify/blobs`: non serve configurazione, vi
 ## Per chi prende in mano il repo dopo di noi
 
 Comincia da:
-1. `docs/architecture.md` — le 5 decisioni che spiegano il "perché" del codice
-2. `src/core/` + `tests/` — la logica del prodotto, testata
-3. `index.html` — la UI legacy che sta venendo modularizzata (strangler pattern in corso)
+1. `docs/architecture.md` — le 5 ADR che spiegano il "perché" del codice
+2. `docs/api.md` — contratto delle Netlify Functions (request/response, error codes, rate limits)
+3. `src/core/` + `src/server/` + `tests/` — la logica del prodotto, testata
+4. `index.html` — la UI legacy che sta venendo modularizzata (strangler pattern in corso)
