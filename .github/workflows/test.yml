@@ -14,9 +14,21 @@ jobs:
         with:
           node-version: '22'
       # I test della logica core usano solo moduli built-in di Node (node:test):
-      # nessun npm install necessario.
+      # nessun npm install necessario per i test.
       - name: Unit tests (core logic)
         run: node --test tests/*.test.js
       - name: Syntax check Netlify Functions
         run: |
           for f in netlify/functions/*.mjs; do node --check "$f"; done
+
+      # Tooling di qualità: ESLint + JSDoc typecheck. Richiede npm install.
+      # Per ora non blocca la build (continue-on-error): in Fase 3 lo renderemo
+      # bloccante dopo aver stabilizzato i warning.
+      - name: Install dev deps
+        run: npm install --no-audit --no-fund
+      - name: ESLint
+        run: npm run lint
+        continue-on-error: true
+      - name: TypeScript JSDoc check
+        run: npm run typecheck
+        continue-on-error: true

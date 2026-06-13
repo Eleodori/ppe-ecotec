@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Core geo — funzioni geografiche pure (nessuna dipendenza, nessun DOM/STATE).
  *
@@ -5,6 +6,10 @@
  *  - Browser:           <script src="src/core/geo.js">  → funzioni su globalThis
  *  - Test Node (CJS):   require('./src/core/geo.js')
  *  - Netlify/ESM:       import geo from '../../src/core/geo.js'  (default = oggetto api)
+ *
+ * @typedef {Object} LatLng
+ * @property {number} lat
+ * @property {number} lng
  */
 (function (global, factory) {
   const api = factory();
@@ -16,7 +21,12 @@
   const EARTH_R_KM = 6371;
   const toRad = x => x * Math.PI / 180;
 
-  // Distanza in km tra due punti {lat,lng} (formula dell'emisenoverso).
+  /**
+   * Distanza in km tra due punti (formula dell'emisenoverso).
+   * @param {LatLng} a
+   * @param {LatLng} b
+   * @returns {number} km
+   */
   function haversine(a, b) {
     const dLat = toRad(b.lat - a.lat), dLng = toRad(b.lng - a.lng);
     const s = Math.sin(dLat / 2) ** 2 +
@@ -24,8 +34,12 @@
     return 2 * EARTH_R_KM * Math.asin(Math.sqrt(s));
   }
 
-  // True se il punto {lat,lng} è dentro il poligono (array di {lat,lng}).
-  // Ray casting; il poligono è considerato chiuso (ultimo→primo).
+  /**
+   * Ray casting: true se il punto è dentro il poligono. Poligono chiuso (ultimo→primo).
+   * @param {LatLng} pt
+   * @param {LatLng[]} poly
+   * @returns {boolean}
+   */
   function pointInPolygon(pt, poly) {
     let inside = false;
     for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {

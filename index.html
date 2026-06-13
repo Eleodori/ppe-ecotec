@@ -2878,7 +2878,7 @@ function toast(msg, ms=1800) {
 
 // Build stamp visibile all'utente per capire se il browser sta servendo la versione
 // vecchia dalla cache. Bumpare ad ogni release significativa.
-const APP_VERSION = '2026-06-13.7';
+const APP_VERSION = '2026-06-13.8';
 
 const MAP_THEMES = {
   light: {
@@ -3746,13 +3746,33 @@ async function downloadPhoto(id) {
   finally { _photo.fetching.delete(id); }
 }
 
+const PHOTO_CACHE_MAX = 64;
 async function getPhotoObjectURL(id) {
-  if (_photo.cache.has(id)) return _photo.cache.get(id);
+  if (_photo.cache.has(id)) {
+    // LRU: porta in cima
+    const v = _photo.cache.get(id);
+    _photo.cache.delete(id); _photo.cache.set(id, v);
+    return v;
+  }
   let blob = await photoDBGet(id);
   if (!blob) blob = await downloadPhoto(id);
   if (!blob) return null;
+  // Race-safe: se una getPhotoObjectURL concorrente ha già creato la URL nel
+  // frattempo, riusiamo la sua e revochiamo subito quella nuova (P5 audit).
+  if (_photo.cache.has(id)) {
+    const v = _photo.cache.get(id);
+    return v;
+  }
   const url = URL.createObjectURL(blob);
   _photo.cache.set(id, url);
+  // P5: cap LRU. Quando supera PHOTO_CACHE_MAX, evict il meno-recente
+  // (la Map JS preserva l'ordine di inserimento) e revoca la sua URL.
+  if (_photo.cache.size > PHOTO_CACHE_MAX) {
+    const oldestId = _photo.cache.keys().next().value;
+    const oldUrl = _photo.cache.get(oldestId);
+    _photo.cache.delete(oldestId);
+    try { URL.revokeObjectURL(oldUrl); } catch (_) {}
+  }
   return url;
 }
 

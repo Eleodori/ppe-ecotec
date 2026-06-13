@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Tagged template `html` con escaping automatico.
  *
@@ -17,6 +18,7 @@
  */
 (function (global, factory) {
   // Cerca escapeHtml: definita da src/core/text.js, che dev'essere caricato prima.
+  // @ts-ignore — escapeHtml è iniettato a runtime su globalThis da text.js (pattern UMD-lite)
   const escFn = global.escapeHtml ||
     (typeof require === 'function' ? require('./text.js').escapeHtml : null);
   if (!escFn) throw new Error('html.js richiede text.js (escapeHtml) caricato prima');
