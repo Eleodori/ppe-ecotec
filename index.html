@@ -2619,6 +2619,10 @@ function closeRestorePicker() {
 async function restoreSnapshot(date) {
   closeRestorePicker();
   if (!confirm(`Ripristinare lo stato al ${date}?\n\nLo stato attuale (su TUTTI i dispositivi sincronizzati) verrà sostituito da quella versione. Lo stato di oggi resta comunque salvato come snapshot odierno.`)) return;
+  // M1: marchiamo busy così syncNow in volo non sovrascrive ciò che stiamo
+  // ripristinando. Al termine viene riaccodato un sync se serve.
+  STATE._syncBusy = true;
+  renderSyncDot();
   try {
     const resp = await fetch(`${SYNC_URL}?code=${encodeURIComponent(STATE.syncCode)}&restore=${date}`);
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
@@ -2633,20 +2637,25 @@ async function restoreSnapshot(date) {
     }
     STATE.userState = snap.userState;
     await Store.set('userState', JSON.stringify(STATE.userState));
-    // Push con replace: gli altri dispositivi riceveranno questo stato al
-    // prossimo sync (il loro merge non può "vincere" perché il server è già sostituito)
-    await fetch(SYNC_URL, {
+    // Push con replace: il server viene sostituito, gli altri dispositivi
+    // riceveranno questo stato al prossimo sync. M1: verifichiamo l'esito.
+    const pushResp = await fetch(SYNC_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code: STATE.syncCode, userState: STATE.userState, replace: true }),
     });
+    if (!pushResp.ok) throw new Error('push replace fallito: HTTP ' + pushResp.status);
     rerender('all');
     STATE.lastSyncTs = Date.now();
     STATE.syncError = null;
-    renderSyncMenu();
     toast(`✓ Stato ripristinato al ${date}`, 3500);
   } catch (err) {
+    STATE.syncError = err.message;
     toast('Ripristino fallito: ' + err.message, 4000);
+  } finally {
+    STATE._syncBusy = false;
+    renderSyncMenu();
+    renderSyncDot();
   }
 }
 
@@ -2710,7 +2719,13 @@ async function loadFromStorage() {
       const raw = JSON.parse(us) || {};
       const needsMigration = Object.values(raw).some(v => v && ('fatto' in v || 'problema' in v));
       STATE.userState = needsMigration ? migrateUserState(raw) : raw;
-    } catch(e) {}
+    } catch (e) {
+      // R1 (audit Fase 1): storage corrotto. Senza avviso l'app ripartirebbe
+      // VUOTA in silenzio (senza sync remoto = perdita dati). Lo segnaliamo:
+      // il toast appare appena la UI è disponibile (init().)
+      console.error('userState corrotto:', e.message, us.slice(0, 200));
+      STATE._userStateCorrupt = e.message;
+    }
   }
 
   const set = await Store.get('settings');
@@ -2863,7 +2878,7 @@ function toast(msg, ms=1800) {
 
 // Build stamp visibile all'utente per capire se il browser sta servendo la versione
 // vecchia dalla cache. Bumpare ad ogni release significativa.
-const APP_VERSION = '2026-06-13.6';
+const APP_VERSION = '2026-06-13.7';
 
 const MAP_THEMES = {
   light: {
@@ -2991,6 +3006,11 @@ function setMapTheme(themeName) {
   STATE.tileLayer.options.subdomains = t.subdomains || 'abc';
   STATE.tileLayer.options.attribution = t.attribution;
   STATE.tileLayer.setUrl(t.url);
+  // M5 (audit Fase 1): aggiornare options.maxZoom non basta — Leaflet calcola
+  // map._layersMaxZoom dai layer al momento dell'add. Senza setMaxZoom, dopo un
+  // cambio di tema (es. streets z=20 → satellite z=19) si può ancora zoomare a 20
+  // e si vedrebbero tile vuote.
+  STATE.map.setMaxZoom(t.maxZoom);
   if (STATE.map.getZoom() > t.maxZoom) STATE.map.setZoom(t.maxZoom);
   document.documentElement.style.setProperty('--map-bg', t.bg);
   refreshAllMarkers();
@@ -3095,8 +3115,11 @@ function pvMatchesQuery(p, query) {
   if (!query) return true;
   const terms = query.toLowerCase().split(',').map(t => t.trim()).filter(Boolean);
   if (terms.length === 0) return true;
+  // R5 (audit): se un campo è undefined finiva la stringa "undefined" nel
+  // haystack — cercare "und" matchava tutti i PV. Normalizziamo a stringa vuota.
   const d = pvDisplay(p);
-  const hay = (p.pv+' '+d.comune+' '+d.prov+' '+p.regione+' '+d.indirizzo+' '+d.ragSoc+' '+p.name).toLowerCase();
+  const parts = [p.pv, d.comune, d.prov, p.regione, d.indirizzo, d.ragSoc, p.name];
+  const hay = parts.map(x => x == null ? '' : String(x)).join(' ').toLowerCase();
   return terms.some(t => hay.includes(t));
 }
 
@@ -4195,12 +4218,16 @@ async function init() {
     closeEditPop();
   });
 
-  let _searchFitTimer;
+  // P1 (audit): ogni keystroke ri-renderizzava 399 marker + 200 nodi lista.
+  // Debounce 150ms: l'utente non se ne accorge, il jank sparisce.
+  let _searchFitTimer, _searchApplyTimer;
   document.getElementById('searchInput').addEventListener('input', e => {
-    STATE.filters.query = e.target.value.trim();
-    refreshAllMarkers(); renderList(); renderRegionStats(); saveSettings();
-    // Auto-inquadra la mappa sui risultati quando l'utente smette di digitare,
-    // così i PV cercati (anche più codici separati da virgola) si vedono subito.
+    const v = e.target.value.trim();
+    clearTimeout(_searchApplyTimer);
+    _searchApplyTimer = setTimeout(() => {
+      STATE.filters.query = v;
+      rerender('markers'); rerender('list'); saveSettings();
+    }, 150);
     clearTimeout(_searchFitTimer);
     _searchFitTimer = setTimeout(() => fitMapToSearch(), 500);
   });
@@ -4393,6 +4420,13 @@ async function init() {
 
   // App avviata: da ora gli errori non fatali non mostrano più l'overlay.
   window.__booted = true;
+
+  // R1: se loadFromStorage ha trovato userState corrotto, l'utente deve saperlo
+  // (oltre al console.error già emesso). Col sync attivo il merge remoto può
+  // recuperare; senza, è perdita locale silenziosa.
+  if (STATE._userStateCorrupt) {
+    toast('⚠ Stato locale corrotto e ignorato. Se hai il sync attivo verrà riallineato.', 8000);
+  }
 }
 
 async function loadDataset() {
