@@ -1425,7 +1425,14 @@ aside {
 
 <!-- Global error catching, shown BEFORE everything else -->
 <script>
+// L'overlay a schermo intero serve SOLO per errori fatali in fase di avvio
+// (es. Leaflet non caricato, dataset non scaricato). Una volta che l'app è
+// avviata (window.__booted = true) un errore non fatale — tipico: una promise
+// async rifiutata da un handler UI come foto/sync — non deve più "brickare"
+// l'interfaccia: lo logghiamo e basta (in futuro → Sentry).
+window.__booted = false;
 window.__bootError = function(msg, src) {
+  if (window.__booted) { console.error('[runtime]', src || '', msg); return; }
   var el = document.getElementById('errOverlay');
   var pre = document.getElementById('errPre');
   pre.textContent = (src ? '['+src+'] ' : '') + msg;
@@ -1548,6 +1555,14 @@ function renderMonthlyReport() {
   });
 }
 
+// Cella CSV sicura: raddoppia le virgolette e neutralizza la CSV injection
+// (Excel/Sheets valutano come formula le celle che iniziano con = + - @ o tab).
+function csvCell(v) {
+  let s = String(v ?? '');
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  return `"${s.replace(/"/g, '""')}"`;
+}
+
 function exportMonthCsv(month) {
   const months = monthlyEarnings();
   const d = months[month];
@@ -1557,7 +1572,7 @@ function exportMonthCsv(month) {
     rows.push([new Date(r.ts).toLocaleDateString('it-IT'), r.tipo, r.pv, r.comune, r.regione, r.eur]);
   });
   rows.push(['', '', '', '', 'TOTALE', d.eur]);
-  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\n');
+  const csv = rows.map(r => r.map(csvCell).join(';')).join('\n');
   const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -1942,8 +1957,8 @@ function renderPlanSheet() {
     return `<div class="plan-stop${done ? ' done' : ''}" data-pv="${id}">
       <span class="plan-stop-num">${i + 1}</span>
       <div class="plan-stop-body">
-        <div class="plan-stop-title">${kind ? `<span class="plan-stop-kind ${kindCls}">${kind}</span> ` : ''}<span class="plan-stop-pv mono">PV ${id}</span> · ${d.comune}</div>
-        <div class="plan-stop-sub">${d.indirizzo || p.regione}${dist ? ' · ' + dist : ''}</div>
+        <div class="plan-stop-title">${kind ? `<span class="plan-stop-kind ${kindCls}">${kind}</span> ` : ''}<span class="plan-stop-pv mono">PV ${id}</span> · ${escapeHtml(d.comune)}</div>
+        <div class="plan-stop-sub">${escapeHtml(d.indirizzo || p.regione)}${dist ? ' · ' + dist : ''}</div>
       </div>
       <button class="plan-stop-remove" data-remove="${id}" title="Rimuovi tappa">✕</button>
     </div>`;
@@ -2503,16 +2518,39 @@ const Store = {
     if (window.storage) {
       try { await window.storage.set(key, value); return; } catch(e) {}
     }
-    try { localStorage.setItem(key, value); } catch(e) {}
-  }
+    try { localStorage.setItem(key, value); }
+    catch(e) {
+      // Quota piena o storage non disponibile: è una perdita dati silenziosa,
+      // la rendiamo visibile una volta (il sync remoto resta comunque la rete
+      // di sicurezza se attivo).
+      console.error('Store.set fallito per', key, e);
+      if (!Store._quotaWarned) {
+        Store._quotaWarned = true;
+        try { toast('⚠ Memoria del browser piena: salvataggio locale fallito. Libera spazio o attiva il sync.', 6000); } catch(_) {}
+      }
+      throw e;
+    }
+  },
+  _quotaWarned: false,
 };
 
 function saveUserState() {
   clearTimeout(STATE.saveTimer);
   STATE.saveTimer = setTimeout(async () => {
-    await Store.set('userState', JSON.stringify(STATE.userState));
+    // Anche se il salvataggio locale fallisce (quota piena), tentiamo comunque
+    // il push remoto: col sync attivo è la rete di sicurezza contro la perdita dati.
+    try { await Store.set('userState', JSON.stringify(STATE.userState)); }
+    catch (e) { /* già segnalato da Store.set */ }
     schedulePush();
   }, 400);
+}
+
+// Scrive subito lo userState in localStorage (sincrono) bypassando il debounce.
+// Usato su pagehide/hidden: garantisce che l'ultima modifica non si perda se il
+// browser uccide la pagina prima che scatti il timer.
+function flushUserState() {
+  if (STATE.saveTimer) { clearTimeout(STATE.saveTimer); STATE.saveTimer = null; }
+  try { localStorage.setItem('userState', JSON.stringify(STATE.userState)); } catch (e) {}
 }
 function saveSettings() {
   const { pvIds, ...filtersToSave } = STATE.filters;
@@ -2573,7 +2611,10 @@ async function syncNow(interactive) {
       refreshAllMarkers(); renderCounters(); renderRegionStats(); renderList();
       renderDrawings();
       if (STATE.view === 'dashboard') renderDashboard();
-      if (STATE.selectedPv && PV_BY_ID[STATE.selectedPv]) renderDetail(PV_BY_ID[STATE.selectedPv]);
+      // Non ri-renderizzare il detail se l'utente sta scrivendo lì dentro
+      // (es. nota di campo): il valore vive nel DOM fino al blur e andrebbe perso.
+      const editingDetail = document.activeElement && document.getElementById('detailSheet')?.contains(document.activeElement);
+      if (STATE.selectedPv && PV_BY_ID[STATE.selectedPv] && !editingDetail) renderDetail(PV_BY_ID[STATE.selectedPv]);
     }
     STATE.lastSyncTs = Date.now();
     STATE.syncError = null;
@@ -2607,7 +2648,7 @@ function renderSyncMenu() {
     document.getElementById('btnSyncSetup').addEventListener('click', setupSync);
   } else {
     const when = STATE.lastSyncTs ? fmtTs(STATE.lastSyncTs) : 'mai';
-    const status = STATE.syncError ? `⚠ errore: ${STATE.syncError}` : `ultimo sync: ${when}`;
+    const status = STATE.syncError ? `⚠ errore: ${escapeHtml(STATE.syncError)}` : `ultimo sync: ${when}`;
     el.innerHTML = `
       <button id="btnSyncNow">🔄 Sincronizza ora<span class="menu-check mono" style="font-size:10px">${status}</span></button>
       <button id="btnSyncCode">🔑 Codice: <span class="mono">${STATE.syncCode}</span></button>
@@ -2884,7 +2925,7 @@ function toast(msg, ms=1800) {
 
 // Build stamp visibile all'utente per capire se il browser sta servendo la versione
 // vecchia dalla cache. Bumpare ad ogni release significativa.
-const APP_VERSION = '2026-06-10.4';
+const APP_VERSION = '2026-06-13.1';
 
 const MAP_THEMES = {
   light: {
@@ -3227,8 +3268,8 @@ function renderList() {
       return `<div class="list-item ${STATE.selectedPv === p.pv ? 'selected' : ''}" data-pv="${p.pv}">
         <span class="dot ${st}"></span>
         <div class="li-body">
-          <div class="li-row1"><span class="li-pv mono">${p.pv}</span><span class="li-comune">${pvDisplay(p).comune}${noteHint}</span></div>
-          <div class="li-row2">${p.regione} · ${pvDisplay(p).indirizzo}</div>
+          <div class="li-row1"><span class="li-pv mono">${p.pv}</span><span class="li-comune">${escapeHtml(pvDisplay(p).comune)}${noteHint}</span></div>
+          <div class="li-row2">${escapeHtml(p.regione)} · ${escapeHtml(pvDisplay(p).indirizzo || '')}</div>
         </div>
         <div class="li-dist mono">${dist}</div>
       </div>`;
@@ -3334,16 +3375,16 @@ function renderDetail(p) {
   const wzUrl = `https://www.waze.com/ul?ll=${p.lat}%2C${p.lng}&navigate=yes`;
   body.innerHTML = `
     ${dist ? `<div class="detail-row"><div class="label">Distanza</div><div class="val mono">${dist} in linea d'aria</div></div>` : ''}
-    <div class="detail-row"><div class="label">Regione</div><div class="val">${p.regione}</div></div>
-    <div class="detail-row"><div class="label">Indirizzo</div><div class="val">${disp.indirizzo || '<em style="color:var(--text-muted)">— (tocca ✏ per inserire)</em>'}</div></div>
-    ${p.addrGoogle ? `<div class="detail-row"><div class="label">Su Google</div><div class="val">${p.name} — ${p.addrGoogle}</div></div>` : ''}
-    ${disp.ragSoc ? `<div class="detail-row"><div class="label">Gestore</div><div class="val">${disp.ragSoc}</div></div>` : ''}
-    ${p.phone ? `<div class="detail-row"><div class="label">Telefono</div><div class="val"><a href="tel:${p.phone.replace(/\s/g,'')}">${p.phone}</a></div></div>` : ''}
-    ${p.attivita_std ? `<div class="detail-row"><div class="label">Attività</div><div class="val">${p.attivita_std}</div></div>` : ''}
-    ${p.note ? `<div class="detail-row"><div class="label">Note prog.</div><div class="val">${p.note}</div></div>` : ''}
+    <div class="detail-row"><div class="label">Regione</div><div class="val">${escapeHtml(p.regione)}</div></div>
+    <div class="detail-row"><div class="label">Indirizzo</div><div class="val">${disp.indirizzo ? escapeHtml(disp.indirizzo) : '<em style="color:var(--text-muted)">— (tocca ✏ per inserire)</em>'}</div></div>
+    ${p.addrGoogle ? `<div class="detail-row"><div class="label">Su Google</div><div class="val">${escapeHtml(p.name || '')} — ${escapeHtml(p.addrGoogle)}</div></div>` : ''}
+    ${disp.ragSoc ? `<div class="detail-row"><div class="label">Gestore</div><div class="val">${escapeHtml(disp.ragSoc)}</div></div>` : ''}
+    ${p.phone ? `<div class="detail-row"><div class="label">Telefono</div><div class="val"><a href="tel:${encodeURIComponent(p.phone.replace(/\s/g,''))}">${escapeHtml(p.phone)}</a></div></div>` : ''}
+    ${p.attivita_std ? `<div class="detail-row"><div class="label">Attività</div><div class="val">${escapeHtml(p.attivita_std)}</div></div>` : ''}
+    ${p.note ? `<div class="detail-row"><div class="label">Note prog.</div><div class="val">${escapeHtml(p.note)}</div></div>` : ''}
     <div class="detail-row"><div class="label">Coord.</div><div class="val mono">${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}</div></div>
     <div class="detail-row" style="margin-top:8px;flex-direction:column;align-items:stretch;gap:4px"><div class="label">Note di campo</div>
-      <textarea class="notes-input" id="notesInput" placeholder="es. portiera bloccata, gestore al pomeriggio…">${us.note || ''}</textarea>
+      <textarea class="notes-input" id="notesInput" placeholder="es. portiera bloccata, gestore al pomeriggio…">${escapeHtml(us.note || '')}</textarea>
     </div>
     <div class="detail-row" style="margin-top:8px;flex-direction:column;align-items:stretch;gap:6px"><div class="label">Foto</div>
       <div class="photo-grid" id="photoGrid"></div>
@@ -3356,7 +3397,7 @@ function renderDetail(p) {
     const v = ev.target.value.trim();
     const cur = STATE.userState[p.pv] || {};
     if (v !== (cur.note || '')) {
-      STATE.userState[p.pv] = { ...cur, note: v, updatedAt: cur.updatedAt || Date.now() };
+      STATE.userState[p.pv] = { ...cur, note: v, updatedAt: Date.now() };
       saveUserState();
       renderList();
     }
@@ -4029,10 +4070,7 @@ function exportCsv() {
     const instWhen = e.instTs ? new Date(e.instTs).toISOString() : '';
     rows.push([p.pv, p.regione, p.prov, p.comune, p.indirizzo, p.ragSoc, p.attivita_std||'', stato, soprWhen, instWhen, (us.note||'').replace(/[\r\n]+/g,' ')]);
   }
-  const csv = rows.map(r => r.map(c => {
-    const s = String(c==null?'':c);
-    return /[",\n;]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
-  }).join(';')).join('\r\n');
+  const csv = rows.map(r => r.map(csvCell).join(';')).join('\r\n');
   const blob = new Blob(['﻿'+csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -4316,7 +4354,7 @@ async function init() {
     const diff = computeStateDiff(items);
     _importChanges = diff.changes;
     const lbl = s => BADGE_LABEL[s] || s;
-    const pvName = pv => { const p = PV_BY_ID[pv]; return p ? pvDisplay(p).comune : ''; };
+    const pvName = pv => { const p = PV_BY_ID[pv]; return p ? escapeHtml(pvDisplay(p).comune) : ''; };
     let html = `<div class="diff-summary">${items.length} righe lette · ${diff.changes.length} modifiche da applicare</div>`;
     if (diff.changes.length) {
       html += `<div class="diff-group"><div class="diff-group-title chg">Cambiano stato (${diff.changes.length})</div>` +
@@ -4423,7 +4461,11 @@ async function init() {
   if (STATE.syncCode) syncNow(false);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && STATE.syncCode) syncNow(false);
+    else if (document.visibilityState === 'hidden') flushUserState();
   });
+  // pagehide: ultima chiamata affidabile prima che il browser scarichi/uccida
+  // la pagina (mobile). Flusha eventuali salvataggi ancora nel debounce.
+  window.addEventListener('pagehide', flushUserState);
   document.getElementById('syncDot').addEventListener('click', () => syncNow(true));
   document.getElementById('restorePopBackdrop').addEventListener('click', closeRestorePicker);
 
@@ -4449,6 +4491,9 @@ async function init() {
       regs.forEach(r => r.unregister());
     });
   }
+
+  // App avviata: da ora gli errori non fatali non mostrano più l'overlay.
+  window.__booted = true;
 }
 
 async function loadDataset() {
