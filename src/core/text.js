@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Core text — utility di testo pure: escaping output e parsing import.
  */

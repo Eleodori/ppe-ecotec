@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Core routing — clustering (DBSCAN) e ottimizzazione del giro (TSP).
  * Dipende da geo.js (haversine). Pure: nessun DOM/STATE.

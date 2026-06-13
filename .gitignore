@@ -1,2 +1,6 @@
 # Backup utente generati al volo per essere mandati come file (non vanno in repo)
 pee_field_backup_*.json
+
+# Dev tooling (ESLint, TypeScript) — installato in CI, mai in repo
+node_modules/
+package-lock.json

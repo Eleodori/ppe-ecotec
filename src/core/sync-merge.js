@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Core sync-merge — fusione di due userState (LWW per-PV + union foto).
  *

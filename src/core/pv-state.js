@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Core PV state — funzioni pure sullo stato di un singolo PV.
  *
