@@ -154,6 +154,108 @@
     return next;
   }
 
+  // === Scadenza planimetria ===
+  //
+  // La planimetria di un PV installato va rifatta periodicamente (default 24 mesi,
+  // editabile globalmente e per-PV). Logica pura: input = userState entry +
+  // intervallo globale + now. Output = status discreto + giorni a scadenza.
+  //
+  // Lo stato 'missing' significa "non monitorabile" (manca la data dell'ultima
+  // planimetria). 'ok' = scade tra >30 giorni. 'expiring' = scade entro 30
+  // giorni. 'expired' = già scaduta.
+
+  const DEFAULT_PLANIMETRIA_INTERVAL_MONTHS = 24;
+  const PLANIMETRIA_EXPIRING_DAYS = 30;
+
+  /**
+   * @param {object} [us]   entry userState[pv]
+   * @param {number} [globalIntervalMonths]   default 24
+   * @param {number} [now]  ms (passato esplicitamente per testabilità)
+   * @returns {{
+   *   status: 'missing'|'ok'|'expiring'|'expired',
+   *   lastDate: string|null,
+   *   expiryDate: string|null,
+   *   daysToExpiry: number|null,
+   *   intervalMonths: number
+   * }}
+   */
+  function planimetriaStatus(us, globalIntervalMonths, now) {
+    const interval = Number(globalIntervalMonths) > 0
+      ? Number(globalIntervalMonths)
+      : DEFAULT_PLANIMETRIA_INTERVAL_MONTHS;
+    const plan = (us && us.planimetria) || null;
+    const override = plan && Number(plan.intervalMonthsOverride) > 0
+      ? Number(plan.intervalMonthsOverride)
+      : null;
+    const effectiveMonths = override || interval;
+    const lastDateRaw = plan && plan.lastDate ? String(plan.lastDate) : null;
+    const m = lastDateRaw && /^(\d{4})-(\d{2})-(\d{2})$/.exec(lastDateRaw);
+    if (!m) {
+      return {
+        status: 'missing',
+        lastDate: lastDateRaw || null,
+        expiryDate: null,
+        daysToExpiry: null,
+        intervalMonths: effectiveMonths,
+      };
+    }
+    // Mezzogiorno locale: evita salti TZ ai bordi del giorno.
+    const last = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0);
+    const expiry = new Date(last);
+    expiry.setMonth(expiry.getMonth() + effectiveMonths);
+    const expiryIso = `${expiry.getFullYear()}-${String(expiry.getMonth() + 1).padStart(2, '0')}-${String(expiry.getDate()).padStart(2, '0')}`;
+    const today = new Date(typeof now === 'number' ? now : Date.now());
+    today.setHours(0, 0, 0, 0);
+    const exDay = new Date(expiry); exDay.setHours(0, 0, 0, 0);
+    const days = Math.round((exDay.getTime() - today.getTime()) / 86400000);
+    const status = days < 0
+      ? /** @type {'expired'} */ ('expired')
+      : days <= PLANIMETRIA_EXPIRING_DAYS
+        ? /** @type {'expiring'} */ ('expiring')
+        : /** @type {'ok'} */ ('ok');
+    return {
+      status,
+      lastDate: lastDateRaw,
+      expiryDate: expiryIso,
+      daysToExpiry: days,
+      intervalMonths: effectiveMonths,
+    };
+  }
+
+  /**
+   * Setta/aggiorna la data dell'ultima planimetria. Producer puro per
+   * updatePvEntry: (cur, now) → next.
+   *
+   * @param {string|null} dateStr 'YYYY-MM-DD' oppure null per pulire
+   */
+  function setPlanimetriaDate(dateStr) {
+    return function (cur, now) {
+      cur = cur || {};
+      const next = { ...cur, updatedAt: now };
+      const prev = next.planimetria || {};
+      if (dateStr) next.planimetria = { ...prev, lastDate: dateStr };
+      else if (prev.intervalMonthsOverride) next.planimetria = { intervalMonthsOverride: prev.intervalMonthsOverride };
+      else delete next.planimetria;
+      return next;
+    };
+  }
+
+  /**
+   * Setta/azzera l'override di cadenza per-PV (in mesi). null = usa globale.
+   */
+  function setPlanimetriaOverride(monthsOrNull) {
+    return function (cur, now) {
+      cur = cur || {};
+      const next = { ...cur, updatedAt: now };
+      const prev = next.planimetria || {};
+      const months = Number(monthsOrNull) > 0 ? Number(monthsOrNull) : null;
+      if (months) next.planimetria = { ...prev, intervalMonthsOverride: months };
+      else if (prev.lastDate) next.planimetria = { lastDate: prev.lastDate };
+      else delete next.planimetria;
+      return next;
+    };
+  }
+
   /**
    * Confronta una lista di {pv, desired} (output di parseStateList) con lo
    * stato attuale dei PV nel master. Regole di buon senso:
@@ -193,5 +295,10 @@
     nextStateOverride,
     nextImportOverride,
     computeStateDiff,
+    planimetriaStatus,
+    setPlanimetriaDate,
+    setPlanimetriaOverride,
+    DEFAULT_PLANIMETRIA_INTERVAL_MONTHS,
+    PLANIMETRIA_EXPIRING_DAYS,
   };
 });

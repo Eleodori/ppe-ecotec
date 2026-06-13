@@ -1068,6 +1068,30 @@ aside {
 .period-tab { padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; color: var(--text-muted); transition: all .15s; }
 .period-tab.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.5); }
 
+/* === Planimetrie: dashboard + detail === */
+.planim-global-wrap { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); }
+.planim-global-input { width: 50px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font-family: var(--font-mono); font-size: 12px; text-align: right; }
+.planim-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--surface-2); cursor: pointer; }
+.planim-row:last-child { border-bottom: none; }
+.planim-row:hover, .planim-row:focus { background: var(--surface-2); border-radius: 6px; outline: none; }
+.planim-pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; letter-spacing: .04em; flex-shrink: 0; }
+.planim-pill.ok { background: rgba(34,197,94,.15); color: #22c55e; }
+.planim-pill.missing { background: rgba(148,163,184,.15); color: var(--text-muted); }
+.planim-pill.expiring { background: rgba(245,158,11,.18); color: #f59e0b; }
+.planim-pill.expired { background: rgba(239,68,68,.18); color: #ef4444; }
+.planim-info { flex: 1; min-width: 0; }
+.planim-pv { font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.planim-when { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.planim-block { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px !important; }
+.planim-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.planim-controls { display: flex; gap: 6px; align-items: center; }
+.planim-date { flex: 1; padding: 7px 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font-family: var(--font-mono); font-size: 13px; }
+.planim-sub { font-size: 11px; color: var(--text-muted); line-height: 1.4; }
+.planim-override { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.planim-override-lbl { font-size: 11px; color: var(--text-muted); flex: 1; }
+.planim-override input { width: 60px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font-family: var(--font-mono); font-size: 12px; text-align: right; }
+.planim-override-unit { font-size: 11px; color: var(--text-muted); }
+
 /* === Block 4: Activity history === */
 .activity-empty { font-size: 12px; color: var(--text-muted); padding: 16px 0; text-align: center; }
 .activity-item { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--surface-2); }
@@ -1228,6 +1252,18 @@ aside {
     <div class="dash-section">
       <div class="dash-title">Guadagni per mese</div>
       <div id="dashMonthly"></div>
+    </div>
+
+    <div class="dash-section">
+      <div class="dash-section-head">
+        <div class="dash-title">Planimetrie in scadenza</div>
+        <div class="planim-global-wrap">
+          <span class="planim-global-lbl">Cadenza</span>
+          <input type="number" id="planimIntervalInput" class="planim-global-input" min="1" max="120" step="1" value="24">
+          <span class="planim-global-unit">mesi</span>
+        </div>
+      </div>
+      <div id="dashPlanim"></div>
     </div>
 
     <div class="dash-section">
@@ -1525,10 +1561,59 @@ function switchView(view) {
 function renderDashboard() {
   renderEconomicBlock();
   renderMonthlyReport();
+  renderPlanimDashboard();
   renderRegionProgress();
   renderActivityHistory();
   renderQuickStats();
   renderClusters(); // async, updates dashClusters when ready
+}
+
+// === Planimetrie in scadenza — dashboard ===
+// Mostra solo i PV con planimetria datata (status ≠ 'missing') e status
+// non 'ok', ordinati per giorni mancanti (più urgenti in cima).
+function renderPlanimDashboard() {
+  const intInput = document.getElementById('planimIntervalInput');
+  if (intInput && document.activeElement !== intInput) intInput.value = STATE.planimetriaIntervalMonths;
+
+  const el = document.getElementById('dashPlanim');
+  if (!el) return;
+  const rows = [];
+  let okCount = 0, missingCount = 0;
+  for (const p of PVS) {
+    const e = effectiveFlags(p);
+    if (!e.instFatta) continue; // ha senso solo per PV installati
+    const s = planimStatusOf(p);
+    if (s.status === 'missing') { missingCount++; continue; }
+    if (s.status === 'ok') { okCount++; continue; }
+    rows.push({ p, s });
+  }
+  rows.sort((a, b) => (a.s.daysToExpiry ?? 0) - (b.s.daysToExpiry ?? 0));
+
+  if (rows.length === 0) {
+    el.innerHTML = `<div class="activity-empty">Nessuna planimetria in scadenza nei prossimi 30 giorni. ${okCount} OK · ${missingCount} senza data.</div>`;
+    return;
+  }
+  el.innerHTML = rows.slice(0, 50).map(({ p, s }) => {
+    const cls = s.status; // 'expiring' o 'expired'
+    const d = pvDisplay(p);
+    const ex = s.expiryDate ? new Date(s.expiryDate + 'T12:00:00').toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+    const detail = s.status === 'expired'
+      ? `scaduta ${Math.abs(s.daysToExpiry)}gg fa`
+      : `tra ${s.daysToExpiry}gg`;
+    return `<div class="planim-row" data-pv="${p.pv}" role="button" tabindex="0">
+      <span class="planim-pill ${cls}">${cls === 'expired' ? 'SCADUTA' : 'In scadenza'}</span>
+      <div class="planim-info">
+        <div class="planim-pv">PV ${p.pv} · ${escapeHtml(d.comune)} (${escapeHtml(p.regione)})</div>
+        <div class="planim-when">Scade ${ex} · ${detail}</div>
+      </div>
+    </div>`;
+  }).join('') + (rows.length > 50 ? `<div class="econ-info">+ ${rows.length - 50} altre voci</div>` : '');
+  el.querySelectorAll('[data-pv]').forEach(row => {
+    row.addEventListener('click', () => {
+      const pv = parseInt(row.dataset.pv);
+      if (Number.isInteger(pv)) { switchView('mappa'); selectPv(pv); }
+    });
+  });
 }
 
 // === Report mensile (supporto fatturazione) ===
@@ -2398,6 +2483,7 @@ const STATE = {
   view: 'mappa',
   soprTariff: 0,
   periodDays: 30,
+  planimetriaIntervalMonths: 24,
   selectedPv: null,
   markers: {},
   meMarker: null,
@@ -2477,7 +2563,7 @@ function flushUserState() {
 }
 function saveSettings() {
   const { pvIds, ...filtersToSave } = STATE.filters;
-  Store.set('settings', JSON.stringify({ radiusKm: STATE.radiusKm, filters: filtersToSave, mapTheme: STATE.mapTheme, soprTariff: STATE.soprTariff, syncCode: STATE.syncCode }));
+  Store.set('settings', JSON.stringify({ radiusKm: STATE.radiusKm, filters: filtersToSave, mapTheme: STATE.mapTheme, soprTariff: STATE.soprTariff, syncCode: STATE.syncCode, planimetriaIntervalMonths: STATE.planimetriaIntervalMonths }));
 }
 
 // === Sync multi-dispositivo (Netlify Blobs) ===
@@ -2777,6 +2863,8 @@ async function loadFromStorage() {
       else if (s.darkMap === true) STATE.mapTheme = 'dark';
       if (s.soprTariff != null) STATE.soprTariff = parseFloat(s.soprTariff) || 0;
       if (typeof s.syncCode === 'string' && s.syncCode) STATE.syncCode = s.syncCode;
+      const pim = parseInt(s.planimetriaIntervalMonths);
+      if (Number.isFinite(pim) && pim > 0) STATE.planimetriaIntervalMonths = pim;
     } catch(e) {}
   }
 
@@ -2819,8 +2907,13 @@ function dismissFirstTip() {
 // (Pure functions con firma (p, us) → testate.)
 const _effectiveFlagsCore = window.effectiveFlags;
 const _statusOfCore       = window.statusOf;
+const _planimetriaStatusCore = window.planimetriaStatus;
 window.effectiveFlags = function (p) { return _effectiveFlagsCore(p, STATE.userState[p.pv]); };
 window.statusOf       = function (p) { return _statusOfCore(p, STATE.userState[p.pv]); };
+// Wrapper STATE-aware: usa l'intervallo globale corrente e Date.now() lato client.
+function planimStatusOf(p) {
+  return _planimetriaStatusCore(STATE.userState[p.pv], STATE.planimetriaIntervalMonths, Date.now());
+}
 
 // === Helper unico di mutazione dello userState (ADR-004) ===
 // Tutte le mutazioni di STATE.userState[pv] passano da qui: bump updatedAt,
@@ -2902,7 +2995,7 @@ function toast(msg, ms=1800) {
 
 // Build stamp visibile all'utente per capire se il browser sta servendo la versione
 // vecchia dalla cache. Bumpare ad ogni release significativa.
-const APP_VERSION = '2026-06-13.15';
+const APP_VERSION = '2026-06-13.16';
 
 const MAP_THEMES = {
   light: {
@@ -3387,6 +3480,7 @@ function renderDetail(p) {
     <div class="detail-row" style="margin-top:8px;flex-direction:column;align-items:stretch;gap:4px"><div class="label">Note di campo</div>
       <textarea class="notes-input" id="notesInput" placeholder="es. portiera bloccata, gestore al pomeriggio…">${escapeHtml(us.note || '')}</textarea>
     </div>
+    ${e.instFatta ? renderPlanimBlock(p) : ''}
     <div class="detail-row" style="margin-top:8px;flex-direction:column;align-items:stretch;gap:6px"><div class="label">Foto</div>
       <div class="photo-grid" id="photoGrid"></div>
       <button class="btn" id="btnAddPhoto" style="font-size:12px;padding:9px 10px">📷 Aggiungi foto</button>
@@ -3405,6 +3499,7 @@ function renderDetail(p) {
 
   renderPhotoGrid(p);
   document.getElementById('btnAddPhoto').addEventListener('click', () => onAddPhotoClick(p.pv));
+  if (e.instFatta) wirePlanimBlock(p);
 
   // Buttons
   const canUndoSopr = !!us.sopralluogo_fatto_ts && !p.sopralluogo_ts && !p.sopralluogo_fatto;
@@ -3429,6 +3524,90 @@ function renderDetail(p) {
   const cols = btns.length >= 3 ? 'three' : btns.length === 1 ? 'one' : '';
   acts.className = 'detail-actions' + (cols ? ' ' + cols : '');
   acts.innerHTML = btns.join('');
+}
+
+// === Planimetria expiry — UI ===
+// Render del riquadro nel detail panel (solo PV installati).
+// Tutta la logica pura è in src/core/pv-state.js → planimetriaStatus /
+// setPlanimetriaDate / setPlanimetriaOverride (testati).
+const PLANIM_STATUS_LABEL = {
+  missing:  { txt: 'Data non inserita',          cls: 'missing'  },
+  ok:       { txt: 'OK',                          cls: 'ok'       },
+  expiring: { txt: 'In scadenza',                 cls: 'expiring' },
+  expired:  { txt: 'SCADUTA',                     cls: 'expired'  },
+};
+
+function fmtPlanimSubLabel(s) {
+  if (s.status === 'missing') return 'Inserisci la data dell\'ultima planimetria per attivare il promemoria.';
+  const ex = s.expiryDate ? new Date(s.expiryDate + 'T12:00:00').toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+  if (s.status === 'expired') return `Scaduta il ${ex} (${Math.abs(s.daysToExpiry)} gg fa) — cadenza ${s.intervalMonths}m`;
+  if (s.status === 'expiring') return `Scade il ${ex} (tra ${s.daysToExpiry} gg) — cadenza ${s.intervalMonths}m`;
+  return `Scade il ${ex} (tra ${s.daysToExpiry} gg) — cadenza ${s.intervalMonths}m`;
+}
+
+function renderPlanimBlock(p) {
+  const us = STATE.userState[p.pv] || {};
+  const plan = us.planimetria || {};
+  const s = planimStatusOf(p);
+  const label = PLANIM_STATUS_LABEL[s.status];
+  const dateVal = plan.lastDate || '';
+  const overVal = plan.intervalMonthsOverride || '';
+  return `<div class="detail-row planim-block" style="flex-direction:column;align-items:stretch;gap:6px">
+    <div class="planim-head">
+      <span class="label">Planimetria</span>
+      <span class="planim-pill ${label.cls}">${label.txt}</span>
+    </div>
+    <div class="planim-controls">
+      <input type="date" id="planimDateInput" class="planim-date" value="${escapeHtml(dateVal)}">
+      <button class="btn" id="planimTodayBtn" title="Imposta a oggi">Oggi</button>
+      ${dateVal ? '<button class="btn ghost" id="planimClearBtn" title="Rimuovi data">×</button>' : ''}
+    </div>
+    <div class="planim-sub">${escapeHtml(fmtPlanimSubLabel(s))}</div>
+    <div class="planim-override">
+      <span class="planim-override-lbl">Cadenza personalizzata</span>
+      <input type="number" id="planimOverrideInput" min="1" max="120" step="1" value="${escapeHtml(String(overVal))}" placeholder="${STATE.planimetriaIntervalMonths}">
+      <span class="planim-override-unit">mesi</span>
+    </div>
+  </div>`;
+}
+
+function wirePlanimBlock(p) {
+  const dateInput = document.getElementById('planimDateInput');
+  const overInput = document.getElementById('planimOverrideInput');
+  const todayBtn  = document.getElementById('planimTodayBtn');
+  const clearBtn  = document.getElementById('planimClearBtn');
+  if (dateInput) {
+    dateInput.addEventListener('change', ev => {
+      const v = ev.target.value || null;
+      if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) return;
+      updatePvEntry(p.pv, setPlanimetriaDate(v));
+      rerender('all');
+      if (typeof addBreadcrumb === 'function') addBreadcrumb('action', 'planim:setDate', { pv: p.pv, date: v });
+    });
+  }
+  if (todayBtn) {
+    todayBtn.addEventListener('click', () => {
+      const d = new Date();
+      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      updatePvEntry(p.pv, setPlanimetriaDate(iso));
+      toast(`PV ${p.pv} — planimetria datata oggi`);
+      rerender('all');
+    });
+  }
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      updatePvEntry(p.pv, setPlanimetriaDate(null));
+      rerender('all');
+    });
+  }
+  if (overInput) {
+    overInput.addEventListener('change', ev => {
+      const n = parseInt(ev.target.value);
+      const val = Number.isFinite(n) && n > 0 ? n : null;
+      updatePvEntry(p.pv, setPlanimetriaOverride(val));
+      rerender('all');
+    });
+  }
 }
 
 function _safeAction(name, fn) {
@@ -4122,6 +4301,20 @@ async function init() {
     renderEconomicBlock();
     saveSettings();
   });
+
+  const planimInt = document.getElementById('planimIntervalInput');
+  if (planimInt) {
+    planimInt.value = STATE.planimetriaIntervalMonths;
+    planimInt.addEventListener('change', e => {
+      const n = parseInt(e.target.value);
+      STATE.planimetriaIntervalMonths = Number.isFinite(n) && n > 0 ? n : 24;
+      e.target.value = STATE.planimetriaIntervalMonths;
+      saveSettings();
+      renderPlanimDashboard();
+      // Aggiorna anche detail (potrebbe cambiare il badge OK→expiring)
+      if (STATE.selectedPv && PV_BY_ID[STATE.selectedPv]) renderDetail(PV_BY_ID[STATE.selectedPv]);
+    });
+  }
 
   [['periodWeek', 7], ['periodMonth', 30], ['periodAll', 0]].forEach(([id, days]) => {
     document.getElementById(id).addEventListener('click', () => {
