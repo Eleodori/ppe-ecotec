@@ -2,7 +2,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { makeMemoryReporter, makeConsoleReporter, setReporter, report } =
-  require('../src/server/observability/reporter.js');
+  require('../src/core/reporter.js');
 
 test('reporter: console adapter scrive una riga JSON per record', () => {
   const r = makeConsoleReporter();

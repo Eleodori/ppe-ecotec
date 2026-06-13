@@ -1423,16 +1423,37 @@ aside {
 
 <input type="file" id="importFile" accept=".json" hidden>
 
-<!-- Global error catching, shown BEFORE everything else -->
+<!-- Reporter caricato PRIMA degli handler globali: gli errori più precoci
+     (es. Leaflet non caricato) trovano già il sink pronto. -->
+<script src="src/core/reporter.js"></script>
+
+<!-- Global error catching: overlay solo per errori fatali in fase di avvio,
+     dopo il boot lo stesso errore va solo al reporter (niente "bricka" UI). -->
 <script>
-// L'overlay a schermo intero serve SOLO per errori fatali in fase di avvio
-// (es. Leaflet non caricato, dataset non scaricato). Una volta che l'app è
-// avviata (window.__booted = true) un errore non fatale — tipico: una promise
-// async rifiutata da un handler UI come foto/sync — non deve più "brickare"
-// l'interfaccia: lo logghiamo e basta (in futuro → Sentry).
 window.__booted = false;
+// Breadcrumb leggeri in memoria: ultimi N eventi (UI taps, sync, mutazioni)
+// utili per diagnosticare gli errori senza inviare PII a un servizio terzo.
+window.__breadcrumbs = [];
+function addBreadcrumb(category, message, data) {
+  window.__breadcrumbs.push({ ts: Date.now(), category, message, data });
+  if (window.__breadcrumbs.length > 30) window.__breadcrumbs.shift();
+}
 window.__bootError = function(msg, src) {
-  if (window.__booted) { console.error('[runtime]', src || '', msg); return; }
+  if (window.__booted) {
+    // Errore post-boot: niente overlay, va al reporter strutturato.
+    // I breadcrumb recenti vengono allegati come contesto.
+    if (typeof report !== 'undefined') {
+      report.error(msg instanceof Error ? msg : String(msg), {
+        src,
+        breadcrumbs: window.__breadcrumbs.slice(-10),
+        version: typeof APP_VERSION !== 'undefined' ? APP_VERSION : 'dev',
+      });
+    } else {
+      console.error('[runtime]', src || '', msg);
+    }
+    return;
+  }
+  // Boot fatale: overlay rosso a schermo intero (es. dataset non scaricato)
   var el = document.getElementById('errOverlay');
   var pre = document.getElementById('errPre');
   pre.textContent = (src ? '['+src+'] ' : '') + msg;
@@ -2526,12 +2547,15 @@ async function syncNow(interactive) {
     STATE.lastSyncTs = Date.now();
     STATE.syncError = null;
     if (interactive) toast('✓ Sincronizzato');
+    addBreadcrumb('sync', 'state-sync ok', { pending: STATE._syncPending });
     // A3: ritenta in background le foto non ancora caricate (upload fallito o
     // dispositivo offline al momento dello scatto).
     retryPendingPhotoUploads();
   } catch (err) {
     STATE.syncError = err.message;
     if (interactive) toast('Sync fallito: ' + err.message, 3000);
+    addBreadcrumb('sync', 'state-sync failed', { error: err.message });
+    if (typeof report !== 'undefined') report.warn('sync failed', { error: err.message });
   } finally {
     STATE._syncBusy = false;
     renderSyncMenu();
@@ -2878,7 +2902,7 @@ function toast(msg, ms=1800) {
 
 // Build stamp visibile all'utente per capire se il browser sta servendo la versione
 // vecchia dalla cache. Bumpare ad ogni release significativa.
-const APP_VERSION = '2026-06-13.13';
+const APP_VERSION = '2026-06-13.14';
 
 const MAP_THEMES = {
   light: {
@@ -3425,6 +3449,7 @@ function _afterAction(pvId, p, msg) {
   // coperto da refreshAllMarkers in rerender('all').
   rerender('all');
   if (msg) toast(msg);
+  if (typeof addBreadcrumb === 'function') addBreadcrumb('action', msg || 'mutation', { pv: pvId });
 }
 
 // Tutte le azioni standard passano da updatePvEntry: producer puri (cur, now → next),
