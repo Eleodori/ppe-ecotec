@@ -1,156 +1,102 @@
 /**
- * Netlify Function: distance-matrix
- * Proxy per OpenRouteService Matrix API con cache su Netlify Blobs.
+ * Netlify Function: distance-matrix — proxy a OpenRouteService con cache DAO.
  *
- * POST /.netlify/functions/distance-matrix
- * Body: { sources: [{lat, lng}], destinations: [{lat, lng}] }
- * Returns: { distances: number[][], durations: number[][], cached?: true }
- * Errors: { error: string, message: string }
+ * POST { sources: [{lat,lng}], destinations: [{lat,lng}] }
+ * → { distances: [[m]], durations: [[s]], cached?: true }
  *
- * ENV richiesta: ORS_API_KEY
- * Configurazione: Netlify → Site configuration → Environment variables → ORS_API_KEY
+ * ENV richieste:
+ *   ORS_API_KEY  chiave OpenRouteService (free tier: 2000 req/giorno, 40/min)
+ *
+ * Configurazione: Netlify → Site configuration → Environment variables
  */
 
-import { getStore } from '@netlify/blobs';
-import { createHash } from 'crypto';
+import { makeBlobsDao } from '../../src/server/dao/blobs.js';
+
+const dao = makeBlobsDao();
 
 const ORS_MATRIX_URL = 'https://api.openrouteservice.org/v2/matrix/driving-car';
+const MAX_ELEMENTS = 3500; // limite ORS: sources × destinations
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+};
+
+const errorResp = (status, error, message) =>
+  Response.json({ error, message }, { status, headers: corsHeaders });
 
 export default async function handler(req) {
-  // CORS — stessa origine, ma aggiungo gli header per sicurezza
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-  };
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders });
+  if (req.method !== 'POST')    return errorResp(405, 'METHOD_NOT_ALLOWED', 'Solo POST');
 
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: corsHeaders });
-  }
-
-  if (req.method !== 'POST') {
-    return Response.json({ error: 'METHOD_NOT_ALLOWED', message: 'Solo POST è supportato' }, { status: 405, headers: corsHeaders });
-  }
-
-  // Validazione chiave API
   const apiKey = process.env.ORS_API_KEY;
   if (!apiKey) {
-    return Response.json({
-      error: 'ORS_MISSING_KEY',
-      message: 'ORS_API_KEY non configurata. Vai su: Netlify → tuo sito → Site configuration → Environment variables → aggiungi ORS_API_KEY',
-    }, { status: 500, headers: corsHeaders });
+    return errorResp(500, 'ORS_MISSING_KEY',
+      'ORS_API_KEY non configurata. Vai su: Netlify → tuo sito → Site configuration → Environment variables → aggiungi ORS_API_KEY');
   }
 
-  // Parse body
   let sources, destinations;
   try {
     const body = await req.json();
     sources = body.sources;
     destinations = body.destinations;
   } catch {
-    return Response.json({ error: 'INVALID_BODY', message: 'Il body non è JSON valido' }, { status: 400, headers: corsHeaders });
+    return errorResp(400, 'INVALID_BODY', 'Il body non è JSON valido');
   }
 
-  if (!Array.isArray(sources) || !Array.isArray(destinations) || sources.length === 0 || destinations.length === 0) {
-    return Response.json({ error: 'INVALID_PARAMS', message: 'sources e destinations devono essere array non vuoti di {lat, lng}' }, { status: 400, headers: corsHeaders });
+  if (!Array.isArray(sources) || !Array.isArray(destinations) || !sources.length || !destinations.length) {
+    return errorResp(400, 'INVALID_PARAMS', 'sources e destinations devono essere array non vuoti di {lat,lng}');
+  }
+  if (sources.length * destinations.length > MAX_ELEMENTS) {
+    return errorResp(400, 'TOO_LARGE',
+      `Troppi elementi: ${sources.length}×${destinations.length}=${sources.length * destinations.length} > ${MAX_ELEMENTS}. Riduci il batch.`);
   }
 
-  // Limite ORS: max 3500 elementi (sources × destinations)
-  if (sources.length * destinations.length > 3500) {
-    return Response.json({ error: 'TOO_LARGE', message: `Troppi elementi: ${sources.length}×${destinations.length}=${sources.length * destinations.length} > 3500. Riduci il batch.` }, { status: 400, headers: corsHeaders });
-  }
-
-  // Cache key deterministica: basata sulle coordinate arrotondate a 5 decimali
-  const cacheKey = buildCacheKey(sources, destinations);
-
-  // Controlla Netlify Blobs
-  let store;
+  // Cache hit
   try {
-    store = getStore('ors-cache');
-    const cached = await store.get(cacheKey, { type: 'json' });
-    if (cached) {
-      return Response.json({ ...cached, cached: true }, { headers: corsHeaders });
-    }
-  } catch {
-    // Blobs non disponibile (es. netlify dev senza CLI auth) — procede senza cache
-    store = null;
+    const cached = await dao.distanceCacheGet({ sources, destinations });
+    if (cached) return Response.json({ ...cached, cached: true }, { headers: corsHeaders });
+  } catch (e) {
+    // Cache non disponibile (es. blobs offline): procediamo comunque, non bloccante
+    console.warn('cache read failed:', e.message);
   }
 
-  // Chiama ORS — coordinate in formato GeoJSON [lng, lat]
+  // Chiamata ORS
   const allLocations = [...sources, ...destinations].map(c => [
     parseFloat(c.lng.toFixed(6)),
     parseFloat(c.lat.toFixed(6)),
   ]);
   const sourceIdxs = sources.map((_, i) => i);
-  const destIdxs = destinations.map((_, i) => i + sources.length);
+  const destIdxs   = destinations.map((_, i) => i + sources.length);
 
   let orsResult;
   try {
     const orsResp = await fetch(ORS_MATRIX_URL, {
       method: 'POST',
-      headers: {
-        'Authorization': apiKey,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      body: JSON.stringify({
-        locations: allLocations,
-        sources: sourceIdxs,
-        destinations: destIdxs,
-        metrics: ['distance', 'duration'],
-      }),
+      headers: { 'Authorization': apiKey, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ locations: allLocations, sources: sourceIdxs, destinations: destIdxs, metrics: ['distance', 'duration'] }),
     });
-
     if (orsResp.status === 401 || orsResp.status === 403) {
-      return Response.json({
-        error: 'ORS_MISSING_KEY',
-        message: `Chiave ORS non valida o non autorizzata (HTTP ${orsResp.status}). Verifica ORS_API_KEY in Netlify.`,
-      }, { status: 500, headers: corsHeaders });
+      return errorResp(500, 'ORS_MISSING_KEY', `Chiave ORS non valida o non autorizzata (HTTP ${orsResp.status})`);
     }
-
     if (orsResp.status === 429) {
-      return Response.json({
-        error: 'ORS_QUOTA',
-        message: 'Quota ORS esaurita (limite: 2000 req/giorno, 40/minuto). Riprova più tardi.',
-      }, { status: 429, headers: corsHeaders });
+      return errorResp(429, 'ORS_QUOTA', 'Quota ORS esaurita (limite: 2000 req/giorno, 40/minuto). Riprova più tardi.');
     }
-
     if (!orsResp.ok) {
       const errText = await orsResp.text().catch(() => '(nessun body)');
-      return Response.json({
-        error: 'ORS_ERROR',
-        message: `ORS ha risposto ${orsResp.status}: ${errText.slice(0, 300)}`,
-      }, { status: 500, headers: corsHeaders });
+      return errorResp(500, 'ORS_ERROR', `ORS ha risposto ${orsResp.status}: ${errText.slice(0, 300)}`);
     }
-
     orsResult = await orsResp.json();
   } catch (err) {
-    return Response.json({
-      error: 'ORS_NETWORK',
-      message: `Errore di rete verso OpenRouteService: ${err.message}`,
-    }, { status: 503, headers: corsHeaders });
+    return errorResp(503, 'ORS_NETWORK', `Errore di rete verso OpenRouteService: ${err.message}`);
   }
 
-  const result = {
-    distances: orsResult.distances,  // meters
-    durations: orsResult.durations,  // seconds
-  };
+  const result = { distances: orsResult.distances, durations: orsResult.durations };
 
-  // Salva in cache
-  if (store) {
-    try {
-      await store.set(cacheKey, result, { metadata: { createdAt: Date.now() } });
-    } catch {
-      // cache write fallita — non bloccante
-    }
-  }
+  // Cache write (non bloccante)
+  try { await dao.distanceCacheSet({ sources, destinations }, result); }
+  catch (e) { console.warn('cache write failed:', e.message); }
 
   return Response.json(result, { headers: corsHeaders });
-}
-
-function buildCacheKey(sources, destinations) {
-  const fmt = c => `${parseFloat(c.lat.toFixed(5))},${parseFloat(c.lng.toFixed(5))}`;
-  const srcStr = sources.map(fmt).join(';');
-  const dstStr = destinations.map(fmt).join(';');
-  return createHash('sha256').update(`src:${srcStr}|dst:${dstStr}`).digest('hex');
 }

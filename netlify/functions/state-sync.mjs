@@ -1,32 +1,27 @@
 /**
- * Netlify Function: state-sync
- * Sincronizza lo userState dell'app tra dispositivi via Netlify Blobs.
+ * Netlify Function: state-sync — sync userState multi-dispositivo.
  *
- * Il client si identifica con un "codice sync" (segreto condiviso tra i propri
- * dispositivi). Il server salva un blob per codice e fa il merge per-PV con
- * last-write-wins su updatedAt, così due dispositivi che pushano in parallelo
- * convergono senza perdere il lavoro di nessuno dei due.
+ * Architettura: route minimale + DAO astratto (src/server/dao/*). Le politiche
+ * di merge sono nel modulo CONDIVISO src/core/sync-merge.js (stessa logica
+ * client e server).
  *
- * Ad ogni POST viene anche aggiornato uno snapshot giornaliero (uno per data),
- * usato come rete di sicurezza: si può elencare e ripristinare una versione
- * precedente dello stato.
- *
- * GET  ?code=XXXX                  → { userState, syncedAt } | { userState: null }
- * GET  ?code=XXXX&snapshots=1      → { snapshots: [{date, syncedAt}] }
- * GET  ?code=XXXX&restore=DATE     → { userState, syncedAt } dello snapshot
- * POST { code, userState }         → { userState (merged), syncedAt }
- * POST { code, userState, replace: true } → sovrascrive senza merge (per il restore)
+ *   GET  ?code=XXXX                          → { userState, syncedAt } | { userState: null }
+ *   GET  ?code=XXXX&snapshots=1              → { snapshots: [{date}] }
+ *   GET  ?code=XXXX&restore=YYYY-MM-DD       → { userState, syncedAt } dello snapshot
+ *   POST { code, userState }                 → { userState (merged), syncedAt }
+ *   POST { code, userState, replace: true }  → sovrascrive senza merge (per restore)
  */
 
-import { getStore } from '@netlify/blobs';
-import { createHash } from 'crypto';
-// Logica di merge CONDIVISA con il client (browser): unico punto di verità.
 import syncMerge from '../../src/core/sync-merge.js';
+import { makeBlobsDao } from '../../src/server/dao/blobs.js';
+
 const { mergeStates } = syncMerge;
+const dao = makeBlobsDao();
 
 const CODE_RE = /^[A-Za-z0-9-]{6,40}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const SNAP_KEEP_DAYS = 30;
+const MAX_STATE_BYTES = 2_000_000;
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -34,113 +29,81 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type',
 };
 
+const errorResp = (status, error, message) =>
+  Response.json({ error, message }, { status, headers: corsHeaders });
+
 export default async function handler(req) {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: corsHeaders });
-  }
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders });
 
-  let store;
   try {
-    store = getStore('user-sync');
-  } catch {
-    return Response.json({ error: 'BLOBS_UNAVAILABLE', message: 'Storage non disponibile' }, { status: 503, headers: corsHeaders });
-  }
-
-  if (req.method === 'GET') {
-    const url = new URL(req.url);
-    const code = url.searchParams.get('code') || '';
-    if (!CODE_RE.test(code)) {
-      return Response.json({ error: 'INVALID_CODE', message: 'Codice sync non valido (6-40 caratteri alfanumerici)' }, { status: 400, headers: corsHeaders });
-    }
-    const key = keyFor(code);
-
-    if (url.searchParams.get('snapshots')) {
-      const { blobs } = await store.list({ prefix: key + ':snap:' }).catch(() => ({ blobs: [] }));
-      const snapshots = blobs
-        .map(b => ({ date: b.key.slice((key + ':snap:').length) }))
-        .filter(s => DATE_RE.test(s.date))
-        .sort((a, b) => b.date.localeCompare(a.date));
-      return Response.json({ snapshots }, { headers: corsHeaders });
-    }
-
-    const restoreDate = url.searchParams.get('restore');
-    if (restoreDate) {
-      if (!DATE_RE.test(restoreDate)) {
-        return Response.json({ error: 'INVALID_DATE', message: 'Data snapshot non valida (YYYY-MM-DD)' }, { status: 400, headers: corsHeaders });
-      }
-      const snap = await store.get(`${key}:snap:${restoreDate}`, { type: 'json' }).catch(() => null);
-      if (!snap) {
-        return Response.json({ error: 'SNAPSHOT_NOT_FOUND', message: 'Snapshot non trovato per quella data' }, { status: 404, headers: corsHeaders });
-      }
-      return Response.json(snap, { headers: corsHeaders });
-    }
-
-    const blob = await store.get(key, { type: 'json' }).catch(() => null);
-    return Response.json(blob || { userState: null, syncedAt: null }, { headers: corsHeaders });
-  }
-
-  if (req.method === 'POST') {
-    let code, userState, replace;
-    try {
-      const body = await req.json();
-      code = body.code;
-      userState = body.userState;
-      replace = !!body.replace;
-    } catch {
-      return Response.json({ error: 'INVALID_BODY', message: 'Body non è JSON valido' }, { status: 400, headers: corsHeaders });
-    }
-    if (!CODE_RE.test(code || '')) {
-      return Response.json({ error: 'INVALID_CODE', message: 'Codice sync non valido (6-40 caratteri alfanumerici)' }, { status: 400, headers: corsHeaders });
-    }
-    if (!userState || typeof userState !== 'object' || Array.isArray(userState)) {
-      return Response.json({ error: 'INVALID_STATE', message: 'userState deve essere un oggetto' }, { status: 400, headers: corsHeaders });
-    }
-    // Limite di sicurezza: lo userState reale è ~50KB, 2MB è già anomalo
-    if (JSON.stringify(userState).length > 2_000_000) {
-      return Response.json({ error: 'TOO_LARGE', message: 'userState troppo grande' }, { status: 413, headers: corsHeaders });
-    }
-
-    const key = keyFor(code);
-    let merged;
-    if (replace) {
-      merged = userState; // restore esplicito: nessun merge, lo stato arriva com'è
-    } else {
-      const existing = await store.get(key, { type: 'json' }).catch(() => null);
-      merged = mergeStates(existing && existing.userState, userState);
-    }
-    const payload = { userState: merged, syncedAt: Date.now() };
-    await store.set(key, JSON.stringify(payload));
-
-    // Snapshot giornaliero (sovrascritto a ogni push dello stesso giorno →
-    // contiene l'ultimo stato di quella data) + pulizia occasionale dei vecchi.
-    try {
-      const today = new Date().toISOString().slice(0, 10);
-      await store.set(`${key}:snap:${today}`, JSON.stringify(payload));
-      if (Math.random() < 0.05) await pruneSnapshots(store, key);
-    } catch { /* snapshot non bloccante */ }
-
-    return Response.json(payload, { headers: corsHeaders });
-  }
-
-  return Response.json({ error: 'METHOD_NOT_ALLOWED', message: 'Solo GET/POST' }, { status: 405, headers: corsHeaders });
-}
-
-async function pruneSnapshots(store, key) {
-  const cutoff = new Date(Date.now() - SNAP_KEEP_DAYS * 86400000).toISOString().slice(0, 10);
-  const { blobs } = await store.list({ prefix: key + ':snap:' });
-  for (const b of blobs) {
-    const date = b.key.slice((key + ':snap:').length);
-    if (DATE_RE.test(date) && date < cutoff) {
-      await store.delete(b.key).catch(() => {});
-    }
+    if (req.method === 'GET')  return await handleGet(req);
+    if (req.method === 'POST') return await handlePost(req);
+    return errorResp(405, 'METHOD_NOT_ALLOWED', 'Solo GET/POST');
+  } catch (err) {
+    console.error('state-sync internal error:', err);
+    return errorResp(500, 'INTERNAL', err.message || 'errore interno');
   }
 }
 
-// (mergeStates / mergePhotoLists vivono in src/core/sync-merge.js, importato in
-//  cima: stessa identica logica eseguita da client e server.)
+async function handleGet(req) {
+  const url = new URL(req.url);
+  const code = url.searchParams.get('code') || '';
+  if (!CODE_RE.test(code)) return errorResp(400, 'INVALID_CODE', 'Codice sync non valido (6-40 caratteri alfanumerici)');
 
-// Il blob key è l'hash del codice: il codice resta l'unico segreto e non
-// compare mai in chiaro nello store.
-function keyFor(code) {
-  return createHash('sha256').update('pee-sync:' + code).digest('hex');
+  if (url.searchParams.get('snapshots')) {
+    const snapshots = await dao.snapshotList(code);
+    return Response.json({ snapshots }, { headers: corsHeaders });
+  }
+
+  const restoreDate = url.searchParams.get('restore');
+  if (restoreDate) {
+    if (!DATE_RE.test(restoreDate)) return errorResp(400, 'INVALID_DATE', 'Data snapshot non valida (YYYY-MM-DD)');
+    const snap = await dao.snapshotGet(code, restoreDate);
+    if (!snap) return errorResp(404, 'SNAPSHOT_NOT_FOUND', 'Snapshot non trovato per quella data');
+    return Response.json(snap, { headers: corsHeaders });
+  }
+
+  const doc = await dao.stateGet(code);
+  return Response.json(doc || { userState: null, syncedAt: null }, { headers: corsHeaders });
+}
+
+async function handlePost(req) {
+  let body;
+  try { body = await req.json(); }
+  catch { return errorResp(400, 'INVALID_BODY', 'Body non è JSON valido'); }
+  const { code, userState, replace } = body || {};
+
+  if (!CODE_RE.test(code || '')) return errorResp(400, 'INVALID_CODE', 'Codice sync non valido (6-40 caratteri alfanumerici)');
+  if (!userState || typeof userState !== 'object' || Array.isArray(userState)) {
+    return errorResp(400, 'INVALID_STATE', 'userState deve essere un oggetto');
+  }
+  if (JSON.stringify(userState).length > MAX_STATE_BYTES) {
+    return errorResp(413, 'TOO_LARGE', 'userState troppo grande');
+  }
+
+  let merged;
+  if (replace) {
+    merged = userState;                            // restore: niente merge
+  } else {
+    const existing = await dao.stateGet(code);
+    merged = mergeStates(existing && existing.userState, userState);
+  }
+  const payload = { userState: merged, syncedAt: Date.now() };
+  await dao.stateSet(code, payload);
+
+  // Snapshot giornaliero (sovrascrive l'esistente). Pulizia probabilistica per
+  // evitare costi su ogni push: ~5% delle volte verifica e cancella vecchi.
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    await dao.snapshotSet(code, today, payload);
+    if (Math.random() < 0.05) {
+      const cutoff = new Date(Date.now() - SNAP_KEEP_DAYS * 86400000).toISOString().slice(0, 10);
+      await dao.snapshotPrune(code, cutoff);
+    }
+  } catch (e) {
+    // Snapshot non bloccante: il sync ha già completato.
+    console.warn('snapshot/prune fallito:', e.message);
+  }
+
+  return Response.json(payload, { headers: corsHeaders });
 }
