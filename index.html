@@ -1457,6 +1457,7 @@ window.addEventListener('unhandledrejection', function(e) {
 <script src="src/core/routing.js"></script>
 <script src="src/core/sync-merge.js"></script>
 <script src="src/core/text.js"></script>
+<script src="src/core/html.js"></script>
 <script src="src/core/pv-state.js"></script>
 
 <script>
@@ -2862,7 +2863,7 @@ function toast(msg, ms=1800) {
 
 // Build stamp visibile all'utente per capire se il browser sta servendo la versione
 // vecchia dalla cache. Bumpare ad ogni release significativa.
-const APP_VERSION = '2026-06-13.5';
+const APP_VERSION = '2026-06-13.6';
 
 const MAP_THEMES = {
   light: {
@@ -3194,29 +3195,45 @@ function renderList() {
   const list = sortedFilteredPvs();
   const wrap = document.getElementById('listWrap');
   if (list.length === 0) {
-    wrap.innerHTML = `<div class="list-empty">Nessun PV con i filtri attuali.<br>Prova ad allargare i criteri.</div>`;
+    wrap.innerHTML = html`<div class="list-empty">Nessun PV con i filtri attuali.${raw('<br>')}Prova ad allargare i criteri.</div>`;
   } else {
     const truncate = list.slice(0, 200);
-    wrap.innerHTML = truncate.map(p => {
+    // P2 (Fase 1 audit): niente più 200 listener ricreati ad ogni render — un
+    // singolo listener delegato è agganciato una sola volta su #listWrap
+    // (vedi initListDelegation) e legge data-pv del .list-item più vicino.
+    const items = truncate.map(p => {
       const st = statusOf(p);
-      const dist = p._d != null ? fmtDist(p._d) : '';
+      const dist = p._d != null ? raw(fmtDist(p._d)) : ''; // fmtDist contiene <span> sicuro
       const us = STATE.userState[p.pv] || {};
-      const noteHint = us.note ? ' · 📝' : '';
-      return `<div class="list-item ${STATE.selectedPv === p.pv ? 'selected' : ''}" data-pv="${p.pv}">
+      const d = pvDisplay(p);
+      const noteHint = us.note ? raw(' · 📝') : '';
+      const selCls = STATE.selectedPv === p.pv ? ' selected' : '';
+      return raw(html`<div class="list-item${selCls}" data-pv="${p.pv}">
         <span class="dot ${st}"></span>
         <div class="li-body">
-          <div class="li-row1"><span class="li-pv mono">${p.pv}</span><span class="li-comune">${escapeHtml(pvDisplay(p).comune)}${noteHint}</span></div>
-          <div class="li-row2">${escapeHtml(p.regione)} · ${escapeHtml(pvDisplay(p).indirizzo || '')}</div>
+          <div class="li-row1"><span class="li-pv mono">${p.pv}</span><span class="li-comune">${d.comune}${noteHint}</span></div>
+          <div class="li-row2">${p.regione} · ${d.indirizzo || ''}</div>
         </div>
         <div class="li-dist mono">${dist}</div>
-      </div>`;
-    }).join('');
-    wrap.querySelectorAll('.list-item').forEach(el => {
-      el.addEventListener('click', () => selectPv(parseInt(el.dataset.pv)));
+      </div>`);
     });
+    wrap.innerHTML = html`${items}`;
   }
   const lbl = document.getElementById('sidebarHandleLabel');
   if (lbl) lbl.textContent = `${list.length} PV` + (STATE.position ? ' · per distanza' : '');
+}
+
+// P2: un solo listener delegato sulla wrap, agganciato una volta dall'init.
+function initListDelegation() {
+  const wrap = document.getElementById('listWrap');
+  if (!wrap || wrap._delegated) return;
+  wrap._delegated = true;
+  wrap.addEventListener('click', e => {
+    const row = e.target.closest('.list-item');
+    if (!row || !wrap.contains(row)) return;
+    const pv = parseInt(row.dataset.pv);
+    if (Number.isInteger(pv)) selectPv(pv);
+  });
 }
 
 function renderFilters() {
@@ -4014,6 +4031,7 @@ async function init() {
   await loadFromStorage();
   initMap();
   dbgInit();
+  initListDelegation();
   renderCounters();
   renderFilters();
   // Ripopola la casella di ricerca col filtro salvato, altrimenti i PV risulterebbero
