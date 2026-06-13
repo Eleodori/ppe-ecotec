@@ -37,6 +37,16 @@ test('mergePhotoLists: ri-aggiunta dopo cancellazione', () => {
   assert.equal(r[0].addedAt, 300);
 });
 
+test('C1 — modifica locale durante il sync non viene persa', () => {
+  // L'utente ha pushato PV100@10. Durante la fetch modifica PV100 (ora @50).
+  // Il server risponde con PV100@10 (non sa della modifica) + PV200@30 (altro device).
+  const serverState = { '100': { v: 'pushed', updatedAt: 10 }, '200': { v: 'altro-device', updatedAt: 30 } };
+  const localCurrent = { '100': { v: 'modifica-durante-fetch', updatedAt: 50 }, '200': { v: 'altro-device', updatedAt: 30 } };
+  const reconciled = mergeStates(serverState, localCurrent);
+  assert.equal(reconciled['100'].v, 'modifica-durante-fetch', 'la modifica locale recente vince');
+  assert.equal(reconciled['200'].v, 'altro-device', 'la modifica da altro device è acquisita');
+});
+
 test('mergeStates: le foto non si perdono nel LWW (push paralleli)', () => {
   // remote ha foto A (entry più recente per updatedAt), local ha foto B su stesso PV
   const remote = { '1': { updatedAt: 20, photos: [{ id: 'A', addedAt: 20 }] } };

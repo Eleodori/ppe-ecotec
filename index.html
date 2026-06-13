@@ -2386,6 +2386,7 @@ const STATE = {
   syncError: null,
   _syncTimer: null,
   _syncBusy: false,
+  _syncPending: false,
   dayPlan: [],
 };
 
@@ -2484,8 +2485,13 @@ function renderSyncDot() {
 }
 
 async function syncNow(interactive) {
-  if (!STATE.syncCode || STATE._syncBusy) return;
+  if (!STATE.syncCode) return;
+  // A2: se un sync è già in corso, non scartare la richiesta: segna che ne
+  // serve un altro e rilancialo nel finally (altrimenti modifiche fatte durante
+  // il sync resterebbero non pushate fino al prossimo evento).
+  if (STATE._syncBusy) { STATE._syncPending = true; return; }
   STATE._syncBusy = true;
+  STATE._syncPending = false;
   renderSyncDot();
   try {
     const resp = await fetch(SYNC_URL, {
@@ -2495,10 +2501,14 @@ async function syncNow(interactive) {
     });
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const data = await resp.json();
-    const merged = data.userState || {};
-    // Applica il merge solo se il server ha qualcosa di diverso da noi
-    if (JSON.stringify(merged) !== JSON.stringify(STATE.userState)) {
-      STATE.userState = merged;
+    const serverState = data.userState || {};
+    // C1 (lost update): NON assegnare in blocco lo stato del server. Durante la
+    // fetch l'utente può aver modificato dei PV (gesto tipico sul campo): quelle
+    // modifiche hanno updatedAt più recente e devono vincere. Ri-mergiamo lo
+    // stato server con quello locale CORRENTE usando la stessa logica del server.
+    const reconciled = mergeStates(serverState, STATE.userState);
+    if (JSON.stringify(reconciled) !== JSON.stringify(STATE.userState)) {
+      STATE.userState = reconciled;
       await Store.set('userState', JSON.stringify(STATE.userState));
       // Riallinea il piano dal merge se il server aveva una versione più recente
       const sp = STATE.userState.__dayPlan;
@@ -2515,9 +2525,15 @@ async function syncNow(interactive) {
       const editingDetail = document.activeElement && document.getElementById('detailSheet')?.contains(document.activeElement);
       if (STATE.selectedPv && PV_BY_ID[STATE.selectedPv] && !editingDetail) renderDetail(PV_BY_ID[STATE.selectedPv]);
     }
+    // Se il merge locale ha prodotto qualcosa di diverso da ciò che il server
+    // conosce, c'erano modifiche locali da propagare: pushale al prossimo giro.
+    if (JSON.stringify(reconciled) !== JSON.stringify(serverState)) STATE._syncPending = true;
     STATE.lastSyncTs = Date.now();
     STATE.syncError = null;
     if (interactive) toast('✓ Sincronizzato');
+    // A3: ritenta in background le foto non ancora caricate (upload fallito o
+    // dispositivo offline al momento dello scatto).
+    retryPendingPhotoUploads();
   } catch (err) {
     STATE.syncError = err.message;
     if (interactive) toast('Sync fallito: ' + err.message, 3000);
@@ -2525,6 +2541,12 @@ async function syncNow(interactive) {
     STATE._syncBusy = false;
     renderSyncMenu();
     renderSyncDot();
+    // A2: c'è un sync in sospeso (richiesto mentre eravamo busy, o modifiche
+    // locali da propagare) → rilancia, con un piccolo respiro.
+    if (STATE._syncPending && !STATE.syncError) {
+      STATE._syncPending = false;
+      setTimeout(() => syncNow(false), 800);
+    }
   }
 }
 
@@ -2818,7 +2840,7 @@ function toast(msg, ms=1800) {
 
 // Build stamp visibile all'utente per capire se il browser sta servendo la versione
 // vecchia dalla cache. Bumpare ad ogni release significativa.
-const APP_VERSION = '2026-06-13.2';
+const APP_VERSION = '2026-06-13.3';
 
 const MAP_THEMES = {
   light: {
@@ -3678,18 +3700,53 @@ async function onPhotoFilesSelected(pvId, files) {
 }
 
 async function uploadPhoto(id, blob) {
-  if (!STATE.syncCode) return; // sync non configurato, foto solo locali
-  if (_photo.uploading.has(id)) return;
+  if (!STATE.syncCode) return false; // sync non configurato, foto solo locali
+  if (_photo.uploading.has(id)) return false;
   _photo.uploading.add(id);
   try {
     const b64 = await blobToBase64(blob);
-    await fetch(PHOTO_URL, {
+    const resp = await fetch(PHOTO_URL, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code: STATE.syncCode, id, mime: blob.type, b64 }),
     });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    // A3: marca la foto come caricata nello userState, così non viene ritentata
+    // all'infinito e gli altri dispositivi sanno che il blob è disponibile.
+    markPhotoUploaded(id);
+    return true;
+  } catch (err) {
+    console.warn('upload foto', id, 'fallito:', err.message);
+    return false; // resterà senza flag uploaded → ritentata da retryPendingPhotoUploads
   } finally {
     _photo.uploading.delete(id);
     if (STATE.selectedPv && PV_BY_ID[STATE.selectedPv]) renderPhotoGrid(PV_BY_ID[STATE.selectedPv]);
+  }
+}
+
+// Segna uploaded:true su tutte le occorrenze (in qualunque PV) di quella foto.
+function markPhotoUploaded(id) {
+  let changed = false;
+  for (const [pv, e] of Object.entries(STATE.userState)) {
+    if (pv.startsWith('__') || !e || !Array.isArray(e.photos)) continue;
+    e.photos.forEach(ph => {
+      if (ph && ph.id === id && !ph.deletedAt && !ph.uploaded) { ph.uploaded = true; changed = true; }
+    });
+  }
+  if (changed) saveUserState();
+}
+
+// Ritenta l'upload delle foto che hanno il blob in locale ma non risultano
+// ancora caricate sul server (upload precedente fallito o offline al momento).
+async function retryPendingPhotoUploads() {
+  if (!STATE.syncCode) return;
+  const pending = new Set();
+  for (const [pv, e] of Object.entries(STATE.userState)) {
+    if (pv.startsWith('__') || !e || !Array.isArray(e.photos)) continue;
+    e.photos.forEach(ph => { if (ph && ph.id && !ph.deletedAt && !ph.uploaded) pending.add(ph.id); });
+  }
+  for (const id of pending) {
+    const blob = await photoDBGet(id);
+    if (blob) await uploadPhoto(id, blob); // solo se il blob è qui (è questo device ad averlo)
   }
 }
 
