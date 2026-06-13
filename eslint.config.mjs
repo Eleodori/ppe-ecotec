@@ -31,6 +31,10 @@ export default [
         require: 'readonly',
         process: 'readonly',
         Buffer: 'readonly',
+        // Web APIs disponibili nativamente in Node 18+ (test integration delle Functions)
+        Response: 'readonly',
+        Request: 'readonly',
+        Headers: 'readonly',
       },
     },
     rules: {
