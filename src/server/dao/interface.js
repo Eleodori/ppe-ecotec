@@ -24,6 +24,12 @@
  * @property {string} mime
  * @property {number} uploadedAt
  *
+ * @typedef {Object} PushSubRecord
+ * @property {string} deviceId
+ * @property {{ endpoint: string, keys: { p256dh: string, auth: string } }} subscription
+ * @property {string} [deviceLabel]
+ * @property {number} createdAt
+ *
  * @typedef {Object} Dao
  *
  * @property {(code: string) => Promise<StateDoc|null>} stateGet
@@ -59,6 +65,15 @@
  *
  * @property {(payload: object, result: object) => Promise<void>} distanceCacheSet
  *           Memorizza il risultato di una chiamata ORS.
+ *
+ * @property {(code: string, deviceId: string, record: PushSubRecord) => Promise<void>} pushSubAdd
+ *           Registra/aggiorna la subscription Web Push per un device.
+ *
+ * @property {(code: string) => Promise<PushSubRecord[]>} pushSubList
+ *           Elenco subscription registrate sul codice sync.
+ *
+ * @property {(code: string, deviceId: string) => Promise<void>} pushSubRemove
+ *           Rimuove la subscription di un device.
  */
 
 // Nessun export: questo file è puro JSDoc per il typecheck. Le implementazioni

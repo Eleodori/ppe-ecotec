@@ -102,6 +102,26 @@ export function makeBlobsDao() {
       const key = orsCacheKey(payload);
       await store.set(key, JSON.stringify(result), { metadata: { createdAt: Date.now() } });
     },
+
+    async pushSubAdd(code, deviceId, record) {
+      const store = userSync();
+      await store.set(`${hashCode(code)}:push:${deviceId}`, JSON.stringify(record));
+    },
+    async pushSubList(code) {
+      const store = userSync();
+      const prefix = `${hashCode(code)}:push:`;
+      const { blobs } = await store.list({ prefix }).catch(() => ({ blobs: [] }));
+      const out = [];
+      for (const b of blobs) {
+        const rec = await store.get(b.key, { type: 'json' }).catch(() => null);
+        if (rec) out.push(rec);
+      }
+      return out;
+    },
+    async pushSubRemove(code, deviceId) {
+      const store = userSync();
+      await store.delete(`${hashCode(code)}:push:${deviceId}`).catch(() => {});
+    },
   };
 }
 

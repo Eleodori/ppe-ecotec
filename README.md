@@ -27,8 +27,12 @@ src/core/                    logica pura, testata, condivisa client/server
 tests/                       node:test su tutti i moduli core
 netlify/functions/
   distance-matrix.mjs          proxy OpenRouteService + cache Blobs
-  state-sync.mjs               sync userState multi-dispositivo + snapshot
+  state-sync.mjs               sync userState multi-dispositivo + snapshot + push broadcast
   photo-sync.mjs               storage foto compresse client-side
+  push-subscribe.mjs           subscription Web Push per device (registra/revoca)
+  health.mjs                   shallow/deep/metrics
+src/server/push/             logica broadcast + sender web-push (testati)
+sw.js                          service worker: gestisce push e click → seleziona PV
 docs/architecture.md         ADR (Architecture Decision Records)
 netlify.toml                 cache headers, redirect
 .github/workflows/test.yml   CI: test + lint + typecheck
@@ -52,6 +56,7 @@ Push su `main` → Netlify builda e deploya automaticamente. Le funzioni in `net
 
 **Environment variables** richieste su Netlify:
 - `ORS_API_KEY` — chiave OpenRouteService (per la matrice distanze stradali, free tier sufficiente)
+- `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` — per le push notifications (vedi `docs/operations.md`). Senza queste, il toggle "Notifiche push" è nascosto e tutto il resto continua a funzionare.
 
 Lo storage utente (sync code) usa `@netlify/blobs`: non serve configurazione, viene allocato automaticamente.
 

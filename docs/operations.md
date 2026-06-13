@@ -76,6 +76,26 @@ Da configurare in Netlify → Site configuration → Environment variables:
 |-----------|--------------|---------|------|
 | `ORS_API_KEY` | sì per `distance-matrix` | — | OpenRouteService free tier basta (2000 req/giorno) |
 | `COMMIT_REF` | no | auto da Netlify | Esposto da `/health` come `version` |
+| `VAPID_PUBLIC_KEY` | sì per push notifications | — | Generata una volta sola (vedi sotto) |
+| `VAPID_PRIVATE_KEY` | sì per push notifications | — | Segreta, mai esporre. In Netlify env vars |
+| `VAPID_SUBJECT` | no | `mailto:noreply@example.com` | mailto:… o URL del sito, richiesto dallo standard Web Push |
+
+### Setup Web Push (VAPID)
+
+Generare la coppia di chiavi una volta sola:
+
+```bash
+npx web-push generate-vapid-keys
+```
+
+L'output dà `Public Key` e `Private Key`. Settarle in **Netlify → Site
+configuration → Environment variables** come `VAPID_PUBLIC_KEY` e
+`VAPID_PRIVATE_KEY`. Settare anche `VAPID_SUBJECT` con una mailto valida
+(es. `mailto:admin@maritsrl.com`).
+
+Senza le chiavi configurate: `GET /push-subscribe` ritorna
+`{configured: false}` e l'app nasconde il toggle "Notifiche push" — non
+crasha, la feature è semplicemente off.
 
 ## Rate limit dashboard
 

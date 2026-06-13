@@ -94,3 +94,58 @@ test('DAO: distance cache miss su coord davvero diverse', async () => {
   const miss = await d.distanceCacheGet({ sources: [{ lat: 45.001, lng: 9 }], destinations: [{ lat: 46, lng: 10 }] });
   assert.equal(miss, null);
 });
+
+// === pushSubAdd / pushSubList / pushSubRemove ===
+
+const fakeSub = (suffix = '') => ({
+  endpoint: 'https://push.example.com/abc' + suffix,
+  keys: { p256dh: 'pk-' + suffix, auth: 'ak-' + suffix },
+});
+
+test('DAO: pushSubList vuoto se mai aggiunto', async () => {
+  const d = await dao();
+  assert.deepEqual(await d.pushSubList('A'), []);
+});
+
+test('DAO: pushSubAdd/List roundtrip', async () => {
+  const d = await dao();
+  await d.pushSubAdd('A', 'dev-1', { deviceId: 'dev-1', subscription: fakeSub('-1'), deviceLabel: 'iPhone', createdAt: 100 });
+  const subs = await d.pushSubList('A');
+  assert.equal(subs.length, 1);
+  assert.equal(subs[0].deviceId, 'dev-1');
+  assert.equal(subs[0].subscription.endpoint, 'https://push.example.com/abc-1');
+});
+
+test('DAO: pushSubAdd su stesso deviceId aggiorna invece di duplicare', async () => {
+  const d = await dao();
+  await d.pushSubAdd('A', 'dev-1', { deviceId: 'dev-1', subscription: fakeSub('-old'), createdAt: 1 });
+  await d.pushSubAdd('A', 'dev-1', { deviceId: 'dev-1', subscription: fakeSub('-new'), createdAt: 2 });
+  const subs = await d.pushSubList('A');
+  assert.equal(subs.length, 1, 'deviceId è la chiave primaria');
+  assert.equal(subs[0].subscription.endpoint, 'https://push.example.com/abc-new');
+});
+
+test('DAO: pushSubList isola tra codici', async () => {
+  const d = await dao();
+  await d.pushSubAdd('A', 'dev-1', { deviceId: 'dev-1', subscription: fakeSub('-a'), createdAt: 1 });
+  await d.pushSubAdd('B', 'dev-1', { deviceId: 'dev-1', subscription: fakeSub('-b'), createdAt: 2 });
+  assert.equal((await d.pushSubList('A')).length, 1);
+  assert.equal((await d.pushSubList('B')).length, 1);
+  assert.equal((await d.pushSubList('A'))[0].subscription.endpoint, 'https://push.example.com/abc-a');
+});
+
+test('DAO: pushSubRemove cancella solo il device target', async () => {
+  const d = await dao();
+  await d.pushSubAdd('A', 'dev-1', { deviceId: 'dev-1', subscription: fakeSub('-1'), createdAt: 1 });
+  await d.pushSubAdd('A', 'dev-2', { deviceId: 'dev-2', subscription: fakeSub('-2'), createdAt: 2 });
+  await d.pushSubRemove('A', 'dev-1');
+  const subs = await d.pushSubList('A');
+  assert.equal(subs.length, 1);
+  assert.equal(subs[0].deviceId, 'dev-2');
+});
+
+test('DAO: pushSubRemove di device inesistente non throwa', async () => {
+  const d = await dao();
+  await d.pushSubRemove('A', 'ghost'); // non deve esplodere
+  assert.deepEqual(await d.pushSubList('A'), []);
+});
