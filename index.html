@@ -1457,6 +1457,7 @@ window.addEventListener('unhandledrejection', function(e) {
 <script src="src/core/routing.js"></script>
 <script src="src/core/sync-merge.js"></script>
 <script src="src/core/text.js"></script>
+<script src="src/core/pv-state.js"></script>
 
 <script>
 "use strict";
@@ -2781,41 +2782,31 @@ function dismissFirstTip() {
 }
 
 // Combina master + userState. Master wins per i timestamp.
-function effectiveFlags(p) {
-  const us = STATE.userState[p.pv] || {};
-  const o = us.override || {};
-  const soprFattoTs = p.sopralluogo_ts || us.sopralluogo_fatto_ts || null;
-  const instFattaTs = p.installazione_ts || us.installazione_fatta_ts || null;
-  const instRichTsUser = us.installazione_richiesta_ts || null;
-  // override locale (boolean) ha la precedenza sul master, così l'utente può
-  // riclassificare un PV sbagliato (es. da inst-todo a sopr-todo) senza dover
-  // toccare il backend.
-  const ovr = (key, fallback) => (typeof o[key] === 'boolean' ? o[key] : fallback);
-  return {
-    soprRichiesto: ovr('soprRich', !!p.sopralluogo_richiesto),
-    soprFatto: ovr('soprFatto', !!(soprFattoTs || p.sopralluogo_fatto)),
-    soprTs: soprFattoTs,
-    instRichiesta: ovr('instRich', !!(p.installazione_richiesta || instRichTsUser)),
-    instRichTsUser,
-    instFatta: ovr('instFatta', !!(instFattaTs || p.installazione_fatta)),
-    instTs: instFattaTs,
-    sospeso: ovr('sospeso', !!p.sospeso),
-    archivio: ovr('archive', !!p.archivio_storico),
-  };
-}
+// effectiveFlags / statusOf vivono in src/core/pv-state.js. Qui resta solo il
+// wrapper "STATE-aware" che evita di passare userState ovunque nei call-site.
+// (Pure functions con firma (p, us) → testate.)
+const _effectiveFlagsCore = window.effectiveFlags;
+const _statusOfCore       = window.statusOf;
+window.effectiveFlags = function (p) { return _effectiveFlagsCore(p, STATE.userState[p.pv]); };
+window.statusOf       = function (p) { return _statusOfCore(p, STATE.userState[p.pv]); };
 
-function statusOf(p) {
-  const e = effectiveFlags(p);
-  // 'completato' deve avere precedenza su 'archive': un PV può avere
-  // archivio_storico=true nel master ma essere stato installato (instFatta=true).
-  // L'utente vuole vederlo come "Fatto", non come archivio nascosto.
-  if (e.sospeso)  return 'sospeso';
-  if (e.instFatta) return 'completato';
-  if (e.archivio) return 'archive';
-  if (e.instRichiesta) return 'inst-todo';
-  if (e.soprFatto) return 'attesa';
-  if (e.soprRichiesto) return 'sopr-todo';
-  return 'inst-todo'; // fallback — ha comunque un'attività
+// === Helper unico di mutazione dello userState (ADR-004) ===
+// Tutte le mutazioni di STATE.userState[pv] passano da qui: bump updatedAt,
+// scrittura immutabile, persistenza+sync automatici. Impossibile dimenticare
+// uno dei due (era il bug C2 della Fase 1).
+//
+// @param {number} pvId
+// @param {function(object, number): object} producer  riceve (current, now) → newEntry
+//        (typicamente una funzione pura da src/core/pv-state.js)
+function updatePvEntry(pvId, producer) {
+  const now = Date.now();
+  const cur = STATE.userState[pvId] || {};
+  const next = producer(cur, now);
+  // Difesa in profondità: anche se il producer dimenticasse, bumpiamo noi.
+  if (next && next.updatedAt !== now) next.updatedAt = now;
+  STATE.userState[pvId] = next;
+  saveUserState();
+  return next;
 }
 
 // haversine → src/core/geo.js
@@ -2840,7 +2831,7 @@ function toast(msg, ms=1800) {
 
 // Build stamp visibile all'utente per capire se il browser sta servendo la versione
 // vecchia dalla cache. Bumpare ad ogni release significativa.
-const APP_VERSION = '2026-06-13.3';
+const APP_VERSION = '2026-06-13.4';
 
 const MAP_THEMES = {
   light: {
@@ -3312,8 +3303,7 @@ function renderDetail(p) {
     const v = ev.target.value.trim();
     const cur = STATE.userState[p.pv] || {};
     if (v !== (cur.note || '')) {
-      STATE.userState[p.pv] = { ...cur, note: v, updatedAt: Date.now() };
-      saveUserState();
+      updatePvEntry(p.pv, c => ({ ...c, note: v }));
       renderList();
     }
   });
@@ -3372,136 +3362,65 @@ function _afterAction(pvId, p, msg) {
   if (msg) toast(msg);
 }
 
+// Tutte le azioni standard passano da updatePvEntry: producer puri (cur, now → next),
+// niente più Date.now() sparso, impossibile dimenticare updatedAt (bug C2 Fase 1).
+// Le firme della logica (cur, now) sono pure → testabili in isolamento.
+
+const _setTs = field => (cur, now) => ({ ...cur, [field]: now });
+const _clearField = field => cur => ({ ...cur, [field]: null });
+
 window.markSopralluogoFatto = _safeAction('markSopralluogoFatto', (pvId, p) => {
-  const cur = STATE.userState[pvId] || {};
-  STATE.userState[pvId] = { ...cur, sopralluogo_fatto_ts: Date.now(), updatedAt: Date.now() };
+  updatePvEntry(pvId, _setTs('sopralluogo_fatto_ts'));
   _afterAction(pvId, p, `PV ${pvId} — sopralluogo ✓`);
 });
 window.markInstallazioneFatta = _safeAction('markInstallazioneFatta', (pvId, p) => {
-  const cur = STATE.userState[pvId] || {};
-  STATE.userState[pvId] = { ...cur, installazione_fatta_ts: Date.now(), updatedAt: Date.now() };
+  updatePvEntry(pvId, _setTs('installazione_fatta_ts'));
   _afterAction(pvId, p, `PV ${pvId} — installazione ✓`);
 });
+window.markPlanimetriaRicevuta = _safeAction('markPlanimetriaRicevuta', (pvId, p) => {
+  updatePvEntry(pvId, _setTs('installazione_richiesta_ts'));
+  _afterAction(pvId, p, `PV ${pvId} — planimetria ricevuta, pronto per installazione`);
+});
 window.undoSopralluogo = _safeAction('undoSopralluogo', (pvId, p) => {
-  const cur = STATE.userState[pvId] || {};
-  STATE.userState[pvId] = { ...cur, sopralluogo_fatto_ts: null, updatedAt: Date.now() };
+  updatePvEntry(pvId, _clearField('sopralluogo_fatto_ts'));
   _afterAction(pvId, p);
 });
 window.undoInstallazione = _safeAction('undoInstallazione', (pvId, p) => {
-  const cur = STATE.userState[pvId] || {};
-  STATE.userState[pvId] = { ...cur, installazione_fatta_ts: null, updatedAt: Date.now() };
+  updatePvEntry(pvId, _clearField('installazione_fatta_ts'));
   _afterAction(pvId, p);
-});
-window.markPlanimetriaRicevuta = _safeAction('markPlanimetriaRicevuta', (pvId, p) => {
-  const cur = STATE.userState[pvId] || {};
-  STATE.userState[pvId] = { ...cur, installazione_richiesta_ts: Date.now(), updatedAt: Date.now() };
-  _afterAction(pvId, p, `PV ${pvId} — planimetria ricevuta, pronto per installazione`);
 });
 window.undoPlanimetriaRicevuta = _safeAction('undoPlanimetriaRicevuta', (pvId, p) => {
-  const cur = STATE.userState[pvId] || {};
-  STATE.userState[pvId] = { ...cur, installazione_richiesta_ts: null, updatedAt: Date.now() };
+  updatePvEntry(pvId, _clearField('installazione_richiesta_ts'));
   _afterAction(pvId, p);
 });
 
-// Riclassifica un PV verso uno stato specifico tramite override locali. Utile quando
-// il master ha lo stato sbagliato (es. inst-todo invece di sopr-todo).
-// target ∈ {'sopr-todo','attesa','inst-todo','completato','sospeso','auto'}
-const STATE_OVERRIDES = {
-  // Forzare uno stato 'attivo' rimuove anche il flag archivio (un PV che l'utente
-  // sta lavorando NON deve essere considerato archivio storico).
-  'sopr-todo':  { soprRich: true,  soprFatto: false, instRich: false, instFatta: false, sospeso: false, archive: false },
-  'attesa':     { soprRich: false, soprFatto: true,  instRich: false, instFatta: false, sospeso: false, archive: false },
-  'inst-todo':  { soprRich: false, soprFatto: true,  instRich: true,  instFatta: false, sospeso: false, archive: false },
-  'completato': { soprRich: false, soprFatto: true,  instRich: true,  instFatta: true,  sospeso: false, archive: false },
-  'sospeso':    { sospeso: true },
-};
+// Riclassifica un PV. La logica (cur, target, now → next) vive in
+// src/core/pv-state.js → nextStateOverride, testata su tutti i 5 stati + 'auto'.
 window.setPvState = _safeAction('setPvState', (pvId, p, target) => {
-  const cur = STATE.userState[pvId] || {};
-  const now = Date.now();
-  const next = { ...cur, updatedAt: now };
-  if (target === 'auto') {
-    // Ripristina: rimuove gli override e i timestamp utente, lascia parlare il master
-    delete next.override;
-    next.sopralluogo_fatto_ts = null;
-    next.installazione_richiesta_ts = null;
-    next.installazione_fatta_ts = null;
-    STATE.userState[pvId] = next;
-    _afterAction(pvId, p, `PV ${pvId} — stato ripristinato dal master`);
-    return;
-  }
-  const ovr = STATE_OVERRIDES[target];
-  if (!ovr) throw new Error('stato non valido: ' + target);
-  next.override = { ...ovr };
-  // Allinea i timestamp utente allo stato target (così la timeline mostra date coerenti)
-  if (target === 'sopr-todo') {
-    next.sopralluogo_fatto_ts = null;
-    next.installazione_richiesta_ts = null;
-    next.installazione_fatta_ts = null;
-  } else if (target === 'attesa') {
-    next.sopralluogo_fatto_ts = cur.sopralluogo_fatto_ts || now;
-    next.installazione_richiesta_ts = null;
-    next.installazione_fatta_ts = null;
-  } else if (target === 'inst-todo') {
-    next.sopralluogo_fatto_ts = cur.sopralluogo_fatto_ts || now;
-    next.installazione_richiesta_ts = cur.installazione_richiesta_ts || now;
-    next.installazione_fatta_ts = null;
-  } else if (target === 'completato') {
-    next.sopralluogo_fatto_ts = cur.sopralluogo_fatto_ts || now;
-    next.installazione_richiesta_ts = cur.installazione_richiesta_ts || now;
-    next.installazione_fatta_ts = cur.installazione_fatta_ts || now;
-  }
-  // target 'sospeso' preserva i timestamp esistenti
-  STATE.userState[pvId] = next;
-  _afterAction(pvId, p, `PV ${pvId} — stato: ${BADGE_LABEL[target] || target}`);
+  updatePvEntry(pvId, (cur, now) => nextStateOverride(cur, target, now));
+  const msg = target === 'auto'
+    ? `PV ${pvId} — stato ripristinato dal master`
+    : `PV ${pvId} — stato: ${BADGE_LABEL[target] || target}`;
+  _afterAction(pvId, p, msg);
 });
 
-// === Import stati da elenco (testo incollato da PDF/Excel di Serena) ===
-// Override più "leggeri" di quelli del cambio stato manuale: per inst-todo
-// NON forziamo soprFatto=true, così i conteggi dei sopralluoghi non si gonfiano
-// per PV che vanno diretti all'installazione.
-const IMPORT_OVERRIDES = {
-  'sopr-todo': { soprRich: true, soprFatto: false, instRich: false, instFatta: false, sospeso: false, archive: false },
-  'inst-todo': { soprRich: false, instRich: true, instFatta: false, sospeso: false, archive: false },
-  'sospeso':   { sospeso: true },
-};
-
-// parseStateList → src/core/text.js
-
-// Confronta l'elenco con lo stato attuale e produce il diff da mostrare.
-// Regole di buon senso: i completati non si toccano mai; un PV in attesa con
-// richiesta SOPRALLUOGO è già a posto (il sopralluogo l'hai fatto tu).
+// Import stati da elenco: logica pura in src/core/pv-state.js (computeStateDiff,
+// nextImportOverride, IMPORT_OVERRIDES). Qui sotto solo il wrapper che usa lo
+// STATE globale (PV_BY_ID e userState come accessor).
+const _computeStateDiffCore = window.computeStateDiff;
 function computeStateDiff(items) {
-  const changes = [], notFound = [], same = [], anomalies = [];
-  const seen = new Set();
-  for (const { pv, desired } of items) {
-    if (seen.has(pv)) continue;
-    seen.add(pv);
-    const p = PV_BY_ID[pv];
-    if (!p) { notFound.push(pv); continue; }
-    const cur = statusOf(p);
-    if (cur === desired) { same.push(pv); continue; }
-    if (cur === 'completato') { anomalies.push({ pv, cur, desired }); continue; }
-    if (desired === 'sopr-todo' && cur === 'attesa') { same.push(pv); continue; }
-    changes.push({ pv, cur, desired });
-  }
-  return { changes, notFound, same, anomalies };
+  return _computeStateDiffCore(
+    items,
+    pv => PV_BY_ID[pv],
+    pv => STATE.userState[pv]
+  );
 }
 
 function applyStateDiff(changes) {
-  const now = Date.now();
+  // Logica per-PV in src/core/pv-state.js → nextImportOverride (testata)
   for (const { pv, desired } of changes) {
-    const cur = STATE.userState[pv] || {};
-    const next = { ...cur, updatedAt: now, override: { ...IMPORT_OVERRIDES[desired] } };
-    if (desired === 'sopr-todo') {
-      next.sopralluogo_fatto_ts = null;
-      next.installazione_richiesta_ts = null;
-      next.installazione_fatta_ts = null;
-    } else if (desired === 'inst-todo') {
-      next.installazione_fatta_ts = null;
-    }
-    STATE.userState[pv] = next;
+    updatePvEntry(pv, (cur, now) => nextImportOverride(cur, desired, now));
   }
-  saveUserState();
   refreshAllMarkers(); renderCounters(); renderRegionStats(); renderList(); renderPlanUI();
   if (STATE.view === 'dashboard') renderDashboard();
 }
@@ -3677,13 +3596,13 @@ async function onPhotoFilesSelected(pvId, files) {
       if (!blob || blob.size === 0) throw new Error('blob vuoto');
       const id = await sha256Hex(blob);
       await photoDBPut(id, blob);
-      const cur = STATE.userState[pvId] || {};
-      const list = Array.isArray(cur.photos) ? [...cur.photos] : [];
-      const existing = list.findIndex(ph => ph && ph.id === id);
-      const entry = { id, addedAt: Date.now() };
-      if (existing >= 0) list[existing] = entry; else list.push(entry);
-      STATE.userState[pvId] = { ...cur, photos: list, updatedAt: Date.now() };
-      saveUserState();
+      updatePvEntry(pvId, (cur, now) => {
+        const list = Array.isArray(cur.photos) ? [...cur.photos] : [];
+        const existing = list.findIndex(ph => ph && ph.id === id);
+        const entry = { id, addedAt: now };
+        if (existing >= 0) list[existing] = entry; else list.push(entry);
+        return { ...cur, photos: list };
+      });
       uploadPhoto(id, blob).catch(() => {});
       added++;
       const p = PV_BY_ID[pvId];
@@ -3824,10 +3743,10 @@ function closePhotoLightbox() {
 function saveLightboxDesc() {
   const { pv, id } = _photo.lightbox; if (!pv || !id) return;
   const desc = document.getElementById('photoLightboxDesc').value.trim();
-  const cur = STATE.userState[pv] || {};
-  const list = (cur.photos || []).map(ph => ph && ph.id === id ? { ...ph, description: desc || undefined } : ph);
-  STATE.userState[pv] = { ...cur, photos: list, updatedAt: Date.now() };
-  saveUserState();
+  updatePvEntry(pv, cur => ({
+    ...cur,
+    photos: (cur.photos || []).map(ph => ph && ph.id === id ? { ...ph, description: desc || undefined } : ph),
+  }));
   toast('Descrizione salvata');
   closePhotoLightbox();
   if (STATE.selectedPv === pv && PV_BY_ID[pv]) renderPhotoGrid(PV_BY_ID[pv]);
@@ -3837,10 +3756,10 @@ async function deleteLightboxPhoto() {
   if (!confirm('Eliminare questa foto?')) return;
   // Tombstone (necessario per il merge sync: gli altri dispositivi devono
   // sapere che la foto è stata cancellata, non solo "assente").
-  const cur = STATE.userState[pv] || {};
-  const list = (cur.photos || []).map(ph => ph && ph.id === id ? { id, addedAt: ph.addedAt, deletedAt: Date.now() } : ph);
-  STATE.userState[pv] = { ...cur, photos: list, updatedAt: Date.now() };
-  saveUserState();
+  updatePvEntry(pv, (cur, now) => ({
+    ...cur,
+    photos: (cur.photos || []).map(ph => ph && ph.id === id ? { id, addedAt: ph.addedAt, deletedAt: now } : ph),
+  }));
   // Cancello blob locale (l'eventuale eliminazione del blob remoto è
   // facoltativa: se altri PV usano lo stesso id non va cancellato; lasciamo
   // che il server tenga il blob, è piccolo e finirebbe pulito da una GC futura)
@@ -3853,11 +3772,9 @@ async function deleteLightboxPhoto() {
 // Salva override locali di comune/prov/indirizzo/ragSoc. Passare null/'' come fields
 // resetta gli override e ripristina i valori master.
 window.setPvFields = _safeAction('setPvFields', (pvId, p, fields) => {
-  const cur = STATE.userState[pvId] || {};
-  const next = { ...cur, updatedAt: Date.now() };
-  if (!fields) {
-    delete next.fields;
-  } else {
+  updatePvEntry(pvId, cur => {
+    const next = { ...cur };
+    if (!fields) { delete next.fields; return next; }
     const clean = {};
     ['comune','prov','indirizzo','ragSoc'].forEach(k => {
       const v = (fields[k] || '').trim();
@@ -3865,8 +3782,8 @@ window.setPvFields = _safeAction('setPvFields', (pvId, p, fields) => {
     });
     if (Object.keys(clean).length === 0) delete next.fields;
     else next.fields = clean;
-  }
-  STATE.userState[pvId] = next;
+    return next;
+  });
   _afterAction(pvId, p, `PV ${pvId} — dati aggiornati`);
 });
 
