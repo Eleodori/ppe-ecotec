@@ -16,7 +16,8 @@
     "types": ["node"]
   },
   "include": [
-    "src/core/**/*.js",
-    "tests/**/*.js"
+    "src/**/*.js",
+    "tests/**/*.js",
+    "netlify/functions/*.mjs"
   ]
 }

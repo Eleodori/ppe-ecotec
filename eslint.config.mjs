@@ -43,7 +43,8 @@ export default [
     },
   },
   {
-    files: ['netlify/functions/*.mjs'],
+    // Tutti i moduli server (Functions + DAO + impl): ESM
+    files: ['netlify/functions/*.mjs', 'src/server/**/*.js'],
     languageOptions: {
       sourceType: 'module',
       globals: {
