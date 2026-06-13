@@ -1450,6 +1450,14 @@ window.addEventListener('unhandledrejection', function(e) {
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
   integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 
+<!-- Core logico puro, condiviso con i test (node) e il server (Netlify Functions).
+     Caricati come script classici prima dello script principale: definiscono le
+     funzioni su window (geo prima di routing, che ne dipende). -->
+<script src="src/core/geo.js"></script>
+<script src="src/core/routing.js"></script>
+<script src="src/core/sync-merge.js"></script>
+<script src="src/core/text.js"></script>
+
 <script>
 "use strict";
 
@@ -1553,14 +1561,6 @@ function renderMonthlyReport() {
   el.querySelectorAll('.month-csv').forEach(btn => {
     btn.addEventListener('click', () => exportMonthCsv(btn.dataset.month));
   });
-}
-
-// Cella CSV sicura: raddoppia le virgolette e neutralizza la CSV injection
-// (Excel/Sheets valutano come formula le celle che iniziano con = + - @ o tab).
-function csvCell(v) {
-  let s = String(v ?? '');
-  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
-  return `"${s.replace(/"/g, '""')}"`;
 }
 
 function exportMonthCsv(month) {
@@ -1683,69 +1683,9 @@ function renderQuickStats() {
 }
 
 // === Geographic clustering (Block 3) ===
-
-function dbscan(pvs, epsKm, minPts) {
-  const n = pvs.length;
-  const UNVISITED = -2, NOISE = -1;
-  const labels = new Array(n).fill(UNVISITED);
-  let clusterId = 0;
-  const regionQuery = i => {
-    const nb = [];
-    for (let j = 0; j < n; j++) {
-      if (j !== i && haversine(pvs[i], pvs[j]) <= epsKm) nb.push(j);
-    }
-    return nb;
-  };
-  for (let i = 0; i < n; i++) {
-    if (labels[i] !== UNVISITED) continue;
-    const nb = regionQuery(i);
-    if (nb.length < minPts) { labels[i] = NOISE; continue; }
-    labels[i] = clusterId;
-    const queue = [...nb];
-    while (queue.length > 0) {
-      const q = queue.shift();
-      if (labels[q] === NOISE) labels[q] = clusterId;
-      if (labels[q] !== UNVISITED) continue;
-      labels[q] = clusterId;
-      const qnb = regionQuery(q);
-      if (qnb.length >= minPts) queue.push(...qnb);
-    }
-    clusterId++;
-  }
-  const clusters = Array.from({ length: clusterId }, () => []);
-  const noise = [];
-  for (let i = 0; i < n; i++) {
-    if (labels[i] >= 0) clusters[labels[i]].push(pvs[i]);
-    else noise.push(pvs[i]);
-  }
-  return { clusters, noise };
-}
-
-function greedyTSP(distMeters, startIdx = 0) {
-  const n = distMeters.length;
-  if (n <= 1) return { km: 0, order: n === 1 ? [0] : [] };
-  const order = [startIdx];
-  const visited = new Set([startIdx]);
-  let cur = startIdx, total = 0;
-  while (visited.size < n) {
-    let best = -1, bestD = Infinity;
-    for (let j = 0; j < n; j++) {
-      if (!visited.has(j) && distMeters[cur][j] != null && distMeters[cur][j] < bestD) {
-        best = j; bestD = distMeters[cur][j];
-      }
-    }
-    if (best === -1) break;
-    visited.add(best);
-    order.push(best);
-    total += bestD;
-    cur = best;
-  }
-  return { km: total / 1000, order };
-}
-
-function buildHaversineMatrix(pvs) {
-  return pvs.map(a => pvs.map(b => haversine(a, b) * 1000));
-}
+// dbscan / greedyTSP / buildHaversineMatrix / routeCost / twoOptImprove
+// vivono in src/core/routing.js (testati e condivisi). Qui restano solo le
+// funzioni che toccano rete/DOM/STATE.
 
 async function callDistanceMatrix(pvs) {
   if (pvs.length * pvs.length > 3500) return null;
@@ -2189,16 +2129,7 @@ function initLasso() {
   mapEl.addEventListener('pointercancel', finish);
 }
 
-function pointInPolygon(pt, poly) {
-  let inside = false;
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const xi = poly[i].lng, yi = poly[i].lat;
-    const xj = poly[j].lng, yj = poly[j].lat;
-    if (((yi > pt.lat) !== (yj > pt.lat)) &&
-        (pt.lng < (xj - xi) * (pt.lat - yi) / (yj - yi) + xi)) inside = !inside;
-  }
-  return inside;
-}
+// pointInPolygon → src/core/geo.js
 
 function finishLasso() {
   const pts = _lasso.points;
@@ -2361,41 +2292,9 @@ function eraseDrawingAt(latlng) {
   }
 }
 
-// Riordina le tappe: nearest-neighbor come soluzione iniziale + 2-opt come
-// raffinamento (il greedy da solo è mediamente ~8% peggiore dell'ottimo, col
-// 2-opt si scende a ~1%). Se c'è il GPS, parte dalla posizione attuale
-// (punto fittizio in testa alla matrice, poi rimosso dall'ordine).
-function routeCost(order, m) {
-  let c = 0;
-  for (let i = 0; i < order.length - 1; i++) {
-    const d = m[order[i]][order[i + 1]];
-    if (d == null) return Infinity;
-    c += d;
-  }
-  return c;
-}
-
-// 2-opt: prova a invertire ogni segmento del percorso e tiene la mossa se i km
-// totali (ricalcolati sulla matrice direzionale) migliorano; ripete finché
-// non ci sono più miglioramenti. Con fixedStart la prima tappa resta bloccata
-// (è la posizione di partenza).
-function twoOptImprove(order, m, fixedStart = true) {
-  let best = order.slice();
-  let bestCost = routeCost(best, m);
-  let improved = true, guard = 0;
-  while (improved && guard++ < 50) {
-    improved = false;
-    for (let i = fixedStart ? 1 : 0; i < best.length - 1; i++) {
-      for (let j = i + 1; j < best.length; j++) {
-        const cand = best.slice(0, i).concat(best.slice(i, j + 1).reverse(), best.slice(j + 1));
-        const c = routeCost(cand, m);
-        if (c < bestCost - 1e-9) { best = cand; bestCost = c; improved = true; }
-      }
-    }
-  }
-  return { order: best, km: bestCost / 1000 };
-}
-
+// Riordina le tappe: nearest-neighbor + 2-opt (greedyTSP/twoOptImprove/routeCost
+// vivono in src/core/routing.js, testati). Se c'è il GPS, parte dalla posizione
+// attuale (punto fittizio in testa alla matrice, poi rimosso dall'ordine).
 async function optimizePlan() {
   const stops = STATE.dayPlan.map(id => PV_BY_ID[id]).filter(Boolean);
   if (stops.length < 2) return;
@@ -2897,13 +2796,7 @@ function statusOf(p) {
   return 'inst-todo'; // fallback — ha comunque un'attività
 }
 
-function haversine(a, b) {
-  const R = 6371;
-  const toRad = x => x * Math.PI / 180;
-  const dLat = toRad(b.lat - a.lat), dLng = toRad(b.lng - a.lng);
-  const s = Math.sin(dLat/2)**2 + Math.cos(toRad(a.lat))*Math.cos(toRad(b.lat))*Math.sin(dLng/2)**2;
-  return 2 * R * Math.asin(Math.sqrt(s));
-}
+// haversine → src/core/geo.js
 function fmtDist(km) {
   if (km == null) return '';
   if (km < 1) return Math.round(km * 1000) + '<span class="unit">m</span>';
@@ -2925,7 +2818,7 @@ function toast(msg, ms=1800) {
 
 // Build stamp visibile all'utente per capire se il browser sta servendo la versione
 // vecchia dalla cache. Bumpare ad ogni release significativa.
-const APP_VERSION = '2026-06-13.1';
+const APP_VERSION = '2026-06-13.2';
 
 const MAP_THEMES = {
   light: {
@@ -3550,20 +3443,7 @@ const IMPORT_OVERRIDES = {
   'sospeso':   { sospeso: true },
 };
 
-function parseStateList(text) {
-  const out = [];
-  for (const line of (text || '').split(/\r?\n/)) {
-    const pvM = line.match(/\b(\d{5})\b/);
-    if (!pvM) continue;
-    const U = line.toUpperCase();
-    let desired = null;
-    if (/SOSPES/.test(U)) desired = 'sospeso';
-    else if (/SOPRALL|RILIEV/.test(U)) desired = 'sopr-todo';
-    else if (/INSTALL/.test(U)) desired = 'inst-todo';
-    if (desired) out.push({ pv: parseInt(pvM[1]), desired });
-  }
-  return out;
-}
+// parseStateList → src/core/text.js
 
 // Confronta l'elenco con lo stato attuale e produce il diff da mostrare.
 // Regole di buon senso: i completati non si toccano mai; un PV in attesa con
@@ -3867,7 +3747,7 @@ async function renderPhotoGrid(p) {
   }
 }
 
-function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+// escapeHtml / csvCell → src/core/text.js
 
 async function openPhotoLightbox(pvId, photoId) {
   const cur = STATE.userState[pvId] || {};

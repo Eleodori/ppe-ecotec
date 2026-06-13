@@ -1,0 +1,22 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # I test della logica core usano solo moduli built-in di Node (node:test):
+      # nessun npm install necessario.
+      - name: Unit tests (core logic)
+        run: node --test tests/*.test.js
+      - name: Syntax check Netlify Functions
+        run: |
+          for f in netlify/functions/*.mjs; do node --check "$f"; done

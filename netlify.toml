@@ -46,6 +46,14 @@
   [headers.values]
     Cache-Control = "public, max-age=86400, must-revalidate"
 
+# Moduli core JS: caricati da index.html con path fisso. index.html è no-store,
+# quindi anche i moduli devono esserlo per evitare il mismatch "HTML nuovo + JS
+# vecchio dalla cache" dopo un deploy. Costo trascurabile (~10KB totali).
+[[headers]]
+  for = "/src/*"
+  [headers.values]
+    Cache-Control = "no-store"
+
 # Difesa: se per errore venisse rideployato un service worker vecchio,
 # vogliamo che il browser non lo cachi mai e lo possa disinstallare.
 [[headers]]
