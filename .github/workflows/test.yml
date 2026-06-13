@@ -21,14 +21,11 @@ jobs:
         run: |
           for f in netlify/functions/*.mjs; do node --check "$f"; done
 
-      # Tooling di qualità: ESLint + JSDoc typecheck. Richiede npm install.
-      # Per ora non blocca la build (continue-on-error): in Fase 3 lo renderemo
-      # bloccante dopo aver stabilizzato i warning.
-      - name: Install dev deps
+      # Tooling di qualità: ESLint + JSDoc typecheck. Dopo Fase 3 sono BLOCCANTI:
+      # ogni PR deve passare lint e typecheck per essere mergiabile.
+      - name: Install deps
         run: npm install --no-audit --no-fund
       - name: ESLint
         run: npm run lint
-        continue-on-error: true
       - name: TypeScript JSDoc check
         run: npm run typecheck
-        continue-on-error: true
