@@ -18,6 +18,8 @@ import { makeBlobsDao } from '../../src/server/dao/blobs.js';
 import { route, json, ApiError } from '../../src/server/api/http.js';
 import { dateSchema, stateSyncGetQuery, stateSyncPostBody } from '../../src/server/api/schemas.js';
 import { makeRateLimiter } from '../../src/server/api/rate-limit.js';
+import reporterMod from '../../src/core/reporter.js';
+const { report } = reporterMod;
 
 const { mergeStates } = syncMerge;
 const dao = makeBlobsDao();
@@ -100,7 +102,7 @@ export default route({
         }
       } catch (e) {
         // Snapshot non bloccante.
-        console.warn('snapshot/prune fallito:', e.message);
+        report.warn('snapshot or prune failed', { error: e.message });
       }
 
       return json(payload);

@@ -12,6 +12,8 @@ import { makeBlobsDao } from '../../src/server/dao/blobs.js';
 import { route, json, ApiError } from '../../src/server/api/http.js';
 import { distanceMatrixBody } from '../../src/server/api/schemas.js';
 import { makeRateLimiter } from '../../src/server/api/rate-limit.js';
+import reporterMod from '../../src/core/reporter.js';
+const { report } = reporterMod;
 
 const dao = makeBlobsDao();
 const ORS_MATRIX_URL = 'https://api.openrouteservice.org/v2/matrix/driving-car';
@@ -55,7 +57,7 @@ export default route({
         const cached = await dao.distanceCacheGet({ sources, destinations });
         if (cached) return json({ ...cached, cached: true });
       } catch (e) {
-        console.warn('cache read failed:', e.message);
+        report.warn('cache read failed', { error: e.message });
       }
 
       // Chiamata ORS
@@ -91,7 +93,7 @@ export default route({
 
       const result = { distances: orsResult.distances, durations: orsResult.durations };
       try { await dao.distanceCacheSet({ sources, destinations }, result); }
-      catch (e) { console.warn('cache write failed:', e.message); }
+      catch (e) { report.warn('cache write failed', { error: e.message }); }
 
       return json(result);
     },

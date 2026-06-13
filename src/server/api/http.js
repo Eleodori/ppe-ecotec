@@ -25,11 +25,52 @@
  * - ogni richiesta logga: method, path, status, durationMs, error?.
  */
 
+// Reporter strutturato condiviso (server). Niente console.* diretti:
+// così quando IP vorrà Sentry/Datadog basta swappare l'adapter via setReporter.
+import reporterMod from '../../core/reporter.js';
+const { report } = reporterMod;
+
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
 };
+
+// Metriche in-memory per istanza Function: contatori per (method, path, status)
+// e accumulazione delle durate per p50/p95. Esposto via getMetrics() — usato
+// dall'endpoint health o da un Sentry-like adapter futuro.
+const _metrics = {
+  byRoute: new Map(),   // key = method+path → { count, statuses: Map<status, n>, durations: number[] }
+};
+function recordMetric(method, path, status, durationMs) {
+  const key = `${method} ${path}`;
+  let row = _metrics.byRoute.get(key);
+  if (!row) { row = { count: 0, statuses: new Map(), durations: [] }; _metrics.byRoute.set(key, row); }
+  row.count++;
+  row.statuses.set(status, (row.statuses.get(status) || 0) + 1);
+  // Buffer circolare delle durate: max 200 valori per route per stimare percentili
+  if (row.durations.length >= 200) row.durations.shift();
+  row.durations.push(durationMs);
+}
+function percentile(sorted, p) {
+  if (sorted.length === 0) return 0;
+  const i = Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length));
+  return sorted[i];
+}
+/** Snapshot delle metriche correnti (formato leggero, JSON-serializable). */
+export function getMetrics() {
+  const out = {};
+  for (const [key, row] of _metrics.byRoute.entries()) {
+    const sorted = [...row.durations].sort((a, b) => a - b);
+    out[key] = {
+      count: row.count,
+      statuses: Object.fromEntries(row.statuses.entries()),
+      p50ms: percentile(sorted, 50),
+      p95ms: percentile(sorted, 95),
+    };
+  }
+  return out;
+}
 
 /** Errore "controllato" lanciato dagli handler. */
 export class ApiError extends Error {
@@ -140,21 +181,18 @@ export function route(routes) {
         return errorResponse(err.status, err.code, err.message, err.detail);
       }
       status = 500;
-      // Log strutturato: niente PII (codice utente intenzionalmente omesso).
-      console.error(JSON.stringify({
-        level: 'error',
-        method, path: url.pathname,
-        error: err && err.message,
-        stack: err && err.stack,
-      }));
+      // Log strutturato via reporter (no console diretto: ADR-003 stesso pattern).
+      // NO PII: codice sync intenzionalmente omesso dal contesto.
+      report.error(err, { method, path: url.pathname });
       return errorResponse(500, 'INTERNAL', err && err.message ? err.message : 'errore interno');
     } finally {
-      // Una riga per richiesta, parsabile per metriche/Sentry futuro.
-      console.log(JSON.stringify({
-        level: status >= 500 ? 'error' : status >= 400 ? 'warn' : 'info',
-        method, path: url.pathname, status,
-        durationMs: Date.now() - start,
-      }));
+      const durationMs = Date.now() - start;
+      recordMetric(method, url.pathname, status, durationMs);
+      // Request log: una riga per richiesta. info per 2xx, warn 4xx, error 5xx.
+      const summary = { method, path: url.pathname, status, durationMs };
+      if (status >= 500) report.error('request', summary);
+      else if (status >= 400) report.warn('request', summary);
+      else report.info('request', summary);
     }
   };
 }

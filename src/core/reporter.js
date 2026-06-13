@@ -1,18 +1,20 @@
 // @ts-check
 /**
  * Error reporter pluggabile — interfaccia stabile per inviare errori e log
- * strutturati verso un backend di osservabilità.
+ * strutturati verso un backend di osservabilità. ISOMORFO browser+server (UMD-lite).
  *
- * Oggi l'implementazione di default è "console" (Netlify cattura stdout/stderr
- * per 24h, sufficiente per debugging). Quando IP vorrà Sentry / Datadog /
- * CloudWatch basterà sostituire l'adapter in src/server/observability/reporter.js
- * o injectarne uno custom via setReporter().
+ * Oggi l'implementazione di default è "console":
+ * - server: Netlify cattura stdout/stderr per 24h
+ * - client: DevTools console + breadcrumb in memoria (window.__breadcrumbs)
+ *
+ * Quando IP vorrà Sentry / Datadog / CloudWatch basterà chiamare setReporter()
+ * con un adapter custom (zero modifiche ai call-site).
  *
  * Vedi docs/architecture.md ADR-003 (stesso pattern del DAL applicato
  * all'osservabilità).
  *
  * Uso server-side:
- *   import { report } from '../../src/server/observability/reporter.js';
+ *   import { report } from '../../src/core/reporter.js';
  *   report.error(err, { route: 'state-sync', method: 'POST' });
  *   report.warn('quota near limit', { remaining: 50 });
  *   report.info('user action', { event: 'restore', date: '2026-06-12' });
