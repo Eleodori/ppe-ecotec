@@ -11,12 +11,34 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>PEE Field</title>
+<script>
+// Anti-FOUC del tema: applica la preferenza salvata PRIMA che il CSS si attivi,
+// così il primo paint è già nel tema giusto e non c'è flash. Niente moduli/await:
+// blocking inline puro.
+(function () {
+  try {
+    var raw = localStorage.getItem('settings');
+    var t = null;
+    if (raw) { var s = JSON.parse(raw); if (s && (s.theme === 'light' || s.theme === 'dark')) t = s.theme; }
+    if (t) document.documentElement.setAttribute('data-theme', t);
+    // Aggiorna anche theme-color del browser/PWA.
+    var mc = document.querySelector('meta[name="theme-color"]');
+    if (mc) mc.setAttribute('content', t === 'light' ? '#f8fafc' : '#0a0a0a');
+  } catch (e) {}
+})();
+</script>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" href="favicon.svg">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
   integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 <style>
+/* === THEME TOKENS ===
+ * Palette definite a livello :root (default = scura). Override per tema chiaro
+ * tramite [data-theme="light"]. La modalità "auto" (default) segue
+ * prefers-color-scheme via la media query in fondo. L'override manuale
+ * (data-theme="light"|"dark") batte sempre la preferenza di sistema.
+ */
 :root {
   --bg: #0a0a0a;
   --surface: #18181b;
@@ -32,6 +54,13 @@
   --archive: #71717a;
   --me: #3b82f6;
   --sopralluogo: #8b5cf6;
+  /* Colori "on-accent" per il testo sopra background colorati. Variano col tema
+   * perché nel light gli accent sono più scuri e servirebbe testo bianco. */
+  --on-todo: #0a0a0a;
+  --on-done: #0a0a0a;
+  --on-attesa: #0a0a0a;
+  --on-me: #ffffff;
+  --on-sopralluogo: #ffffff;
   --shadow-lg: 0 20px 50px -10px rgba(0,0,0,.8);
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
@@ -39,6 +68,61 @@
   --header-h: 56px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bot: env(safe-area-inset-bottom, 0px);
+}
+
+/* Palette chiara — gli stessi nomi, valori invertiti. I colori semantici
+ * (todo/done/attesa/sospeso) sono regolati per garantire contrasto WCAG AA
+ * su sfondo chiaro. */
+:root[data-theme="light"] {
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --surface-2: #f1f5f9;
+  --border: #cbd5e1;
+  --text: #0f172a;
+  --text-dim: #334155;
+  --text-muted: #64748b;
+  --todo: #d97706;
+  --done: #15803d;
+  --attesa: #2563eb;
+  --sospeso: #b91c1c;
+  --archive: #94a3b8;
+  --me: #2563eb;
+  --sopralluogo: #7c3aed;
+  --shadow-lg: 0 20px 50px -10px rgba(15,23,42,.18);
+  --map-bg: #e8e8e8;
+  /* In light tutti gli accent sono già scuri: testo bianco è la scelta giusta. */
+  --on-todo: #ffffff;
+  --on-done: #ffffff;
+  --on-attesa: #ffffff;
+  --on-me: #ffffff;
+  --on-sopralluogo: #ffffff;
+}
+
+/* Auto = nessun override esplicito → segue il sistema. Su browser/OS in modalità
+ * chiara, viene applicato lo stesso set di valori di [data-theme="light"]. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]):not([data-theme="light"]) {
+    --bg: #f8fafc;
+    --surface: #ffffff;
+    --surface-2: #f1f5f9;
+    --border: #cbd5e1;
+    --text: #0f172a;
+    --text-dim: #334155;
+    --text-muted: #64748b;
+    --todo: #d97706;
+    --done: #15803d;
+    --attesa: #2563eb;
+    --sospeso: #b91c1c;
+    --archive: #94a3b8;
+    --me: #2563eb;
+    --sopralluogo: #7c3aed;
+    --shadow-lg: 0 20px 50px -10px rgba(15,23,42,.18);
+    --on-todo: #ffffff;
+    --on-done: #ffffff;
+    --on-attesa: #ffffff;
+    --on-me: #ffffff;
+    --on-sopralluogo: #ffffff;
+  }
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
@@ -268,13 +352,13 @@ aside {
 }
 .chip:hover { color: var(--text); }
 .chip.on { background: var(--text); color: var(--bg); }
-.chip.near-chip.on { background: var(--me); color: white; }
-.chip.inst-chip.on { background: var(--todo); color: #0a0a0a; }
-.chip.soprl-chip.on { background: var(--sopralluogo); color: white; }
-.chip.done-chip.on { background: var(--done); color: #0a0a0a; }
-.chip.attesa-chip.on { background: var(--attesa); color: #0a0a0a; }
+.chip.near-chip.on { background: var(--me); color: var(--on-me); }
+.chip.inst-chip.on { background: var(--todo); color: var(--on-todo); }
+.chip.soprl-chip.on { background: var(--sopralluogo); color: var(--on-sopralluogo); }
+.chip.done-chip.on { background: var(--done); color: var(--on-done); }
+.chip.attesa-chip.on { background: var(--attesa); color: var(--on-attesa); }
 .chip.region-chip { background: var(--surface); border: 1px solid var(--border); }
-.chip.region-chip.on { background: var(--me); color: white; border-color: var(--me); }
+.chip.region-chip.on { background: var(--me); color: var(--on-me); border-color: var(--me); }
 .filter-sep { flex: 0 0 auto; width: 1px; height: 20px; background: var(--border); margin: 0 2px; }
 
 .region-pop {
@@ -483,24 +567,59 @@ aside {
   }
   .detail-sheet::before { display: none; }
 }
-.detail-header { padding: 22px 20px 12px; display: flex; align-items: flex-start; gap: 12px; }
+.detail-header {
+  padding: 24px 20px 14px;
+  display: flex; align-items: flex-start; gap: 12px;
+  border-bottom: 1px solid var(--surface-2);
+}
 .detail-pv-block {
   font-family: var(--font-mono); font-weight: 700;
   font-size: 18px; letter-spacing: .02em;
   color: var(--text);
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 .detail-pv-block .pv-lbl { font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .1em; margin-right: 6px; vertical-align: middle; }
 .detail-pv-block .pv-num { font-size: 22px; }
-.detail-title { font-size: 19px; font-weight: 600; margin-top: 2px; letter-spacing: -.01em; }
-.detail-meta { flex: 1; }
-.detail-close { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; color: var(--text-dim); }
+.detail-title { font-size: 19px; font-weight: 600; margin-top: 4px; letter-spacing: -.01em; line-height: 1.25; }
+.detail-meta { flex: 1; min-width: 0; }
+.detail-close {
+  width: 36px; height: 36px; border-radius: 10px;
+  display: grid; place-items: center;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
 .detail-close:hover { background: var(--surface-2); color: var(--text); }
-.detail-body { padding: 0 20px 16px; overflow-y: auto; flex: 1; -webkit-overflow-scrolling: touch; }
-.detail-row { display: flex; gap: 10px; padding: 6px 0; font-size: 13px; }
-.detail-row .label { flex: 0 0 90px; color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; padding-top: 2px; }
-.detail-row .val { flex: 1; color: var(--text); word-break: break-word; }
-.detail-row .val a { color: var(--me); text-decoration: none; }
+.detail-body { padding: 4px 20px 18px; overflow-y: auto; flex: 1; -webkit-overflow-scrolling: touch; }
+.detail-row {
+  display: flex;
+  gap: 12px;
+  padding: 9px 0;
+  font-size: 13px;
+  border-bottom: 1px solid var(--surface-2);
+}
+.detail-row:last-child { border-bottom: none; }
+.detail-row .label {
+  flex: 0 0 88px;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding-top: 2px;
+}
+.detail-row .val {
+  flex: 1;
+  color: var(--text);
+  word-break: break-word;
+  line-height: 1.45;
+}
+.detail-row .val a {
+  color: var(--me);
+  text-decoration: none;
+  font-weight: 500;
+}
+.detail-row .val a:hover { text-decoration: underline; }
+.detail-row .val em { color: var(--text-muted); font-style: normal; font-size: 12px; }
 
 /* === Timeline === */
 .timeline {
@@ -544,28 +663,31 @@ aside {
 .notes-input:focus { border-color: var(--text-muted); }
 
 .detail-actions {
-  padding: 12px 16px 16px;
+  padding: 14px 16px 16px;
   display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
   border-top: 1px solid var(--border);
+  background: var(--surface);
 }
 .detail-actions.one { grid-template-columns: 1fr; }
 .detail-actions.three { grid-template-columns: 1fr 1fr 1fr; }
 .btn {
-  padding: 12px 8px;
+  padding: 12px 10px;
   border-radius: 10px;
   font-weight: 600;
   font-size: 13px;
-  transition: all .15s;
+  transition: background .15s, color .15s, transform .1s, border-color .15s;
   display: flex; align-items: center; justify-content: center; gap: 6px;
   border: 1px solid var(--border);
   background: var(--surface-2);
   color: var(--text);
+  text-decoration: none;
 }
+.btn:hover { border-color: var(--text-muted); }
 .btn:active { transform: scale(.97); }
-.btn.primary { background: var(--done); color: #0a0a0a; border-color: var(--done); }
-.btn.primary-sopr { background: var(--sopralluogo); color: white; border-color: var(--sopralluogo); }
-.btn.primary-inst { background: var(--todo); color: #0a0a0a; border-color: var(--todo); }
-.btn.navigate { background: var(--me); color: white; border-color: var(--me); }
+.btn.primary { background: var(--done); color: var(--on-done); border-color: var(--done); }
+.btn.primary-sopr { background: var(--sopralluogo); color: var(--on-sopralluogo); border-color: var(--sopralluogo); }
+.btn.primary-inst { background: var(--todo); color: var(--on-todo); border-color: var(--todo); }
+.btn.navigate { background: var(--me); color: var(--on-me); border-color: var(--me); }
 .btn.ghost-undo { background: transparent; color: var(--text-muted); font-size: 12px; border-color: transparent; }
 
 .task-badge {
@@ -630,7 +752,7 @@ aside {
   flex: 1;
   justify-content: center !important;
 }
-.radius-pills button.on { background: var(--me); color: white; }
+.radius-pills button.on { background: var(--me); color: var(--on-me); }
 
 /* Selettore stile mappa: griglia 2×2, opzione attiva evidenziata */
 .theme-grid {
@@ -649,6 +771,30 @@ aside {
   border: 1px solid transparent;
 }
 .theme-grid button.on {
+  background: rgba(59,130,246,.15);
+  border-color: var(--me);
+  color: var(--me);
+  font-weight: 600;
+}
+
+/* Selettore tema UI (Aspetto): 3 pulsanti orizzontali, riusa lo stile della
+ * theme-grid per coerenza. */
+.theme-pick {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 4px;
+  padding: 4px 12px 8px;
+}
+.theme-pick button {
+  padding: 9px 6px !important;
+  border-radius: 6px !important;
+  background: var(--surface-2);
+  font-size: 12px !important;
+  font-weight: 500;
+  justify-content: center !important;
+  border: 1px solid transparent;
+}
+.theme-pick button.on {
   background: rgba(59,130,246,.15);
   border-color: var(--me);
   color: var(--me);
@@ -1295,6 +1441,13 @@ aside {
   </section>
 
   <div class="menu-pop" id="menuPop">
+    <div class="menu-section">Aspetto</div>
+    <div class="theme-pick" id="themePick">
+      <button data-app-theme="auto">🖥 Auto</button>
+      <button data-app-theme="light">☀ Chiaro</button>
+      <button data-app-theme="dark">🌙 Scuro</button>
+    </div>
+    <hr>
     <div class="menu-section">Posizione</div>
     <div class="radius-control">
       <span class="label">Raggio "vicino"</span>
@@ -2496,6 +2649,7 @@ const STATE = {
   soprTariff: 0,
   periodDays: 30,
   planimetriaIntervalMonths: 24,
+  theme: 'auto',           // 'auto' | 'light' | 'dark' — preferenza UI
   selectedPv: null,
   markers: {},
   meMarker: null,
@@ -2581,7 +2735,7 @@ function flushUserState() {
 }
 function saveSettings() {
   const { pvIds, ...filtersToSave } = STATE.filters;
-  Store.set('settings', JSON.stringify({ radiusKm: STATE.radiusKm, filters: filtersToSave, mapTheme: STATE.mapTheme, soprTariff: STATE.soprTariff, syncCode: STATE.syncCode, planimetriaIntervalMonths: STATE.planimetriaIntervalMonths }));
+  Store.set('settings', JSON.stringify({ radiusKm: STATE.radiusKm, filters: filtersToSave, mapTheme: STATE.mapTheme, soprTariff: STATE.soprTariff, syncCode: STATE.syncCode, planimetriaIntervalMonths: STATE.planimetriaIntervalMonths, theme: STATE.theme }));
 }
 
 // === Sync multi-dispositivo (Netlify Blobs) ===
@@ -3109,6 +3263,7 @@ async function loadFromStorage() {
       if (typeof s.syncCode === 'string' && s.syncCode) STATE.syncCode = s.syncCode;
       const pim = parseInt(s.planimetriaIntervalMonths);
       if (Number.isFinite(pim) && pim > 0) STATE.planimetriaIntervalMonths = pim;
+      if (s.theme === 'light' || s.theme === 'dark' || s.theme === 'auto') STATE.theme = s.theme;
     } catch(e) {}
   }
 
@@ -3239,7 +3394,7 @@ function toast(msg, ms=1800) {
 
 // Build stamp visibile all'utente per capire se il browser sta servendo la versione
 // vecchia dalla cache. Bumpare ad ogni release significativa.
-const APP_VERSION = '2026-06-14.3';
+const APP_VERSION = '2026-06-14.4';
 
 const MAP_THEMES = {
   light: {
@@ -3382,6 +3537,34 @@ function setMapTheme(themeName) {
 function renderThemeGrid() {
   document.querySelectorAll('#themeGrid button').forEach(b =>
     b.classList.toggle('on', b.dataset.theme === STATE.mapTheme));
+}
+
+// Tieni allineato il theme-color del browser quando il SO cambia tema in
+// modalità auto. Niente impatto nei mode espliciti (light/dark hard-coded).
+if (window.matchMedia) {
+  try {
+    window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
+      if (STATE && STATE.theme === 'auto') applyAppTheme('auto');
+    });
+  } catch (_) { /* Safari vecchi: addListener legacy, non vitale */ }
+}
+
+// === Tema UI (chiaro / scuro / auto) ===
+// 'auto' = nessun attributo, lascia decidere a prefers-color-scheme.
+// 'light' / 'dark' = override esplicito via [data-theme] su <html>.
+// L'anti-FOUC inline nell'<head> applica la preferenza al primo paint.
+function applyAppTheme(theme) {
+  const root = document.documentElement;
+  if (theme === 'light' || theme === 'dark') root.setAttribute('data-theme', theme);
+  else root.removeAttribute('data-theme');
+  // Aggiorna i toggle del menu (pallino attivo).
+  document.querySelectorAll('#themePick button').forEach(b =>
+    b.classList.toggle('on', b.dataset.appTheme === theme));
+  // theme-color del browser (status bar PWA): risolvi adesso (auto → dipende dal sistema).
+  const isLight = theme === 'light'
+    || (theme === 'auto' && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
+  const mc = document.querySelector('meta[name="theme-color"]');
+  if (mc) mc.setAttribute('content', isLight ? '#f8fafc' : '#0a0a0a');
 }
 
 function refreshMarker(pvId) {
@@ -3758,7 +3941,7 @@ function renderDetail(p) {
   btns.push(`<a class="btn navigate" href="${ggUrl}" target="_blank" rel="noopener">▸ Naviga</a>`);
   btns.push(`<button class="btn" onclick="togglePlanPv(${p.pv})">${planHas(p.pv) ? '📅 Togli dal piano' : '📅 Aggiungi al piano'}</button>`);
   btns.push(`<button class="btn" onclick="openPvEditor(${p.pv})">✏ Modifica dati</button>`);
-  if (STATE.syncCode) btns.push(`<button class="btn" onclick="openPortalShare(${p.pv})">🌐 Link gestore</button>`);
+  btns.push(`<button class="btn" onclick="openPortalShare(${p.pv})">🌐 Link gestore</button>`);
   if (showSoprBtn) btns.push(`<button class="btn primary-sopr" onclick="markSopralluogoFatto(${p.pv})">✓ Sopralluogo fatto</button>`);
   if (showPlanimBtn) btns.push(`<button class="btn primary-inst" onclick="markPlanimetriaRicevuta(${p.pv})">📐 Planimetria ricevuta</button>`);
   if (showInstBtn) btns.push(`<button class="btn primary-inst" onclick="markInstallazioneFatta(${p.pv})">✓ Installazione fatta</button>`);
@@ -4344,7 +4527,14 @@ window.setPvFields = _safeAction('setPvFields', (pvId, p, fields) => {
 // uno nuovo) — utile se il gestore ha già il primo link e l'utente vuole
 // solo vederlo di nuovo.
 window.openPortalShare = async (pvId) => {
-  if (!STATE.syncCode) { toast('Attiva prima il sync per generare link'); return; }
+  if (!STATE.syncCode) {
+    if (confirm('Per generare un link gestore serve prima attivare il sync tra dispositivi (genera un codice).\n\nAttivarlo ora?')) {
+      // Apre la sezione sync nel menu utente
+      document.getElementById('menuBtn')?.click();
+      document.getElementById('btnSyncSetup')?.click();
+    }
+    return;
+  }
   const p = PV_BY_ID[pvId];
   if (!p) return;
   const disp = pvDisplay(p);
@@ -4816,6 +5006,18 @@ async function init() {
   renderThemeGrid();
   document.querySelectorAll('#themeGrid button').forEach(b => {
     b.addEventListener('click', () => setMapTheme(b.dataset.theme));
+  });
+
+  // Toggle tema UI (auto/light/dark)
+  applyAppTheme(STATE.theme);
+  document.querySelectorAll('#themePick button').forEach(b => {
+    b.addEventListener('click', () => {
+      const t = b.dataset.appTheme;
+      if (t !== 'auto' && t !== 'light' && t !== 'dark') return;
+      STATE.theme = t;
+      applyAppTheme(t);
+      saveSettings();
+    });
   });
   document.getElementById('btnManualPos').addEventListener('click', () => {
     menuPop.classList.remove('open');
