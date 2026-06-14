@@ -580,7 +580,17 @@ aside {
 }
 .detail-pv-block .pv-lbl { font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .1em; margin-right: 6px; vertical-align: middle; }
 .detail-pv-block .pv-num { font-size: 22px; }
-.detail-title { font-size: 19px; font-weight: 600; margin-top: 4px; letter-spacing: -.01em; line-height: 1.25; }
+.detail-pv-block .pv-where {
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: 17px;
+  color: var(--text);
+  letter-spacing: -.01em;
+  margin-left: 10px;
+  vertical-align: baseline;
+}
+.detail-title { font-size: 19px; font-weight: 600; letter-spacing: -.01em; line-height: 1.25; }
+.detail-title:empty { display: none; }
 .detail-meta { flex: 1; min-width: 0; }
 .detail-close {
   width: 36px; height: 36px; border-radius: 10px;
@@ -620,6 +630,19 @@ aside {
 }
 .detail-row .val a:hover { text-decoration: underline; }
 .detail-row .val em { color: var(--text-muted); font-style: normal; font-size: 12px; }
+/* Variante stacked (label sopra, valore sotto). Importante: neutralizza il
+ * flex-basis del label che in column-flex diventerebbe HEIGHT (era il bug
+ * dello spazio enorme tra "Note di campo" e la textarea). */
+.detail-row.stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  margin-top: 4px;
+}
+.detail-row.stack .label {
+  flex: 0 0 auto;
+  padding-top: 0;
+}
 
 /* === Timeline === */
 .timeline {
@@ -3394,7 +3417,7 @@ function toast(msg, ms=1800) {
 
 // Build stamp visibile all'utente per capire se il browser sta servendo la versione
 // vecchia dalla cache. Bumpare ad ogni release significativa.
-const APP_VERSION = '2026-06-14.4';
+const APP_VERSION = '2026-06-14.5';
 
 const MAP_THEMES = {
   light: {
@@ -3851,11 +3874,15 @@ function renderDetail(p) {
   const status = statusOf(p);
   const us = STATE.userState[p.pv] || {};
 
-  document.getElementById('detailPv').innerHTML = `<span class="pv-lbl">PV</span><span class="pv-num">${p.pv}</span>`;
+  const disp = pvDisplay(p);
+  const whereHtml = escapeHtml(disp.comune || '') + (disp.prov ? ' (' + escapeHtml(disp.prov) + ')' : '');
+  document.getElementById('detailPv').innerHTML =
+    `<span class="pv-lbl">PV</span><span class="pv-num">${p.pv}</span>` +
+    `<span class="pv-where">${whereHtml}</span>`;
   document.getElementById('detailBadge').innerHTML =
     `<button class="task-badge ${status} state-trigger" onclick="openStatePicker(${p.pv})" title="Cambia stato">${BADGE_LABEL[status] || status} <span class="state-caret">▾</span></button>`;
-  const disp = pvDisplay(p);
-  document.getElementById('detailTitle').textContent = `${disp.comune} (${disp.prov})`;
+  // detailTitle separato non più usato (il comune ora vive accanto al PV)
+  document.getElementById('detailTitle').textContent = '';
 
   // Timeline
   const tlEl = document.getElementById('detailTimeline');
@@ -3904,11 +3931,11 @@ function renderDetail(p) {
     ${p.attivita_std ? `<div class="detail-row"><div class="label">Attività</div><div class="val">${escapeHtml(p.attivita_std)}</div></div>` : ''}
     ${p.note ? `<div class="detail-row"><div class="label">Note prog.</div><div class="val">${escapeHtml(p.note)}</div></div>` : ''}
     <div class="detail-row"><div class="label">Coord.</div><div class="val mono">${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}</div></div>
-    <div class="detail-row" style="margin-top:8px;flex-direction:column;align-items:stretch;gap:4px"><div class="label">Note di campo</div>
+    <div class="detail-row stack"><div class="label">Note di campo</div>
       <textarea class="notes-input" id="notesInput" placeholder="es. portiera bloccata, gestore al pomeriggio…">${escapeHtml(us.note || '')}</textarea>
     </div>
     ${e.instFatta ? renderPlanimBlock(p) : ''}
-    <div class="detail-row" style="margin-top:8px;flex-direction:column;align-items:stretch;gap:6px"><div class="label">Foto</div>
+    <div class="detail-row stack"><div class="label">Foto</div>
       <div class="photo-grid" id="photoGrid"></div>
       <button class="btn" id="btnAddPhoto" style="font-size:12px;padding:9px 10px">📷 Aggiungi foto</button>
     </div>
@@ -3985,7 +4012,7 @@ function renderPlanimBlock(p) {
   // se cambia la data esplicitamente.
   const dateVal = plan.lastDate || s.lastDate || '';
   const overVal = plan.intervalMonthsOverride || '';
-  return `<div class="detail-row planim-block" style="flex-direction:column;align-items:stretch;gap:6px">
+  return `<div class="detail-row stack planim-block">
     <div class="planim-head">
       <span class="label">Planimetria</span>
       <span class="planim-pill ${label.cls}">${label.txt}</span>
