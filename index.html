@@ -3227,7 +3227,7 @@ function toast(msg, ms=1800) {
 
 // Build stamp visibile all'utente per capire se il browser sta servendo la versione
 // vecchia dalla cache. Bumpare ad ogni release significativa.
-const APP_VERSION = '2026-06-13.17';
+const APP_VERSION = '2026-06-14.1';
 
 const MAP_THEMES = {
   light: {
@@ -3772,9 +3772,11 @@ const PLANIM_STATUS_LABEL = {
 function fmtPlanimSubLabel(s) {
   if (s.status === 'missing') return 'Inserisci la data dell\'ultima planimetria per attivare il promemoria.';
   const ex = s.expiryDate ? new Date(s.expiryDate + 'T12:00:00').toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
-  if (s.status === 'expired') return `Scaduta il ${ex} (${Math.abs(s.daysToExpiry)} gg fa) — cadenza ${s.intervalMonths}m`;
-  if (s.status === 'expiring') return `Scade il ${ex} (tra ${s.daysToExpiry} gg) — cadenza ${s.intervalMonths}m`;
-  return `Scade il ${ex} (tra ${s.daysToExpiry} gg) — cadenza ${s.intervalMonths}m`;
+  // Quando la data è stata dedotta dal timestamp di installazione: lo segnaliamo
+  // così l'utente sa che può sovrascrivere se la planimetria è più recente.
+  const tag = s.inferredFromInstall ? ' (data installazione)' : '';
+  if (s.status === 'expired') return `Scaduta il ${ex}${tag} — ${Math.abs(s.daysToExpiry)} gg fa, cadenza ${s.intervalMonths}m`;
+  return `Scade il ${ex}${tag} — tra ${s.daysToExpiry} gg, cadenza ${s.intervalMonths}m`;
 }
 
 function renderPlanimBlock(p) {
@@ -3782,7 +3784,10 @@ function renderPlanimBlock(p) {
   const plan = us.planimetria || {};
   const s = planimStatusOf(p);
   const label = PLANIM_STATUS_LABEL[s.status];
-  const dateVal = plan.lastDate || '';
+  // Mostra nel picker la data dedotta (= data installazione), così l'utente
+  // vede subito da dove sta partendo il conteggio. Il salvataggio scatta solo
+  // se cambia la data esplicitamente.
+  const dateVal = plan.lastDate || s.lastDate || '';
   const overVal = plan.intervalMonthsOverride || '';
   return `<div class="detail-row planim-block" style="flex-direction:column;align-items:stretch;gap:6px">
     <div class="planim-head">

@@ -176,7 +176,8 @@
    *   lastDate: string|null,
    *   expiryDate: string|null,
    *   daysToExpiry: number|null,
-   *   intervalMonths: number
+   *   intervalMonths: number,
+   *   inferredFromInstall?: boolean
    * }}
    */
   function planimetriaStatus(us, globalIntervalMonths, now) {
@@ -188,7 +189,20 @@
       ? Number(plan.intervalMonthsOverride)
       : null;
     const effectiveMonths = override || interval;
-    const lastDateRaw = plan && plan.lastDate ? String(plan.lastDate) : null;
+
+    // Fallback intelligente: se l'utente non ha inserito una data esplicita ma
+    // l'installazione è stata fatta, la planimetria è coeva all'installazione.
+    // Evita di chiedere all'utente di re-inserire una data che il sistema già
+    // possiede. Override manuale (dateMostra utente) vince comunque.
+    let lastDateRaw = plan && plan.lastDate ? String(plan.lastDate) : null;
+    let inferredFromInstall = false;
+    if (!lastDateRaw && us && us.installazione_fatta_ts) {
+      const d = new Date(us.installazione_fatta_ts);
+      if (!isNaN(d.getTime())) {
+        lastDateRaw = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        inferredFromInstall = true;
+      }
+    }
     const m = lastDateRaw && /^(\d{4})-(\d{2})-(\d{2})$/.exec(lastDateRaw);
     if (!m) {
       return {
@@ -197,6 +211,7 @@
         expiryDate: null,
         daysToExpiry: null,
         intervalMonths: effectiveMonths,
+        inferredFromInstall: false,
       };
     }
     // Mezzogiorno locale: evita salti TZ ai bordi del giorno.
@@ -219,6 +234,7 @@
       expiryDate: expiryIso,
       daysToExpiry: days,
       intervalMonths: effectiveMonths,
+      inferredFromInstall,
     };
   }
 
