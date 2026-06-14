@@ -18,8 +18,12 @@ import { makeBlobsDao } from '../../src/server/dao/blobs.js';
 import { route, json, ApiError } from '../../src/server/api/http.js';
 import { dateSchema, stateSyncGetQuery, stateSyncPostBody } from '../../src/server/api/schemas.js';
 import { makeRateLimiter } from '../../src/server/api/rate-limit.js';
+import { broadcastEvents } from '../../src/server/push/broadcast.js';
+import { makeSender } from '../../src/server/push/web-push-sender.js';
 import reporterMod from '../../src/core/reporter.js';
 const { report } = reporterMod;
+
+const sender = makeSender();
 
 const { mergeStates } = syncMerge;
 const dao = makeBlobsDao();
@@ -76,7 +80,7 @@ export default route({
     before: [rateLimit],
     body: stateSyncPostBody,
     handler: async ({ body }) => {
-      const { code, userState, replace } = body;
+      const { code, userState, replace, deviceId, events } = body;
 
       if (JSON.stringify(userState).length > MAX_STATE_BYTES) {
         throw new ApiError(413, 'TOO_LARGE', 'userState troppo grande');
@@ -103,6 +107,20 @@ export default route({
       } catch (e) {
         // Snapshot non bloccante.
         report.warn('snapshot or prune failed', { error: e.message });
+      }
+
+      // Broadcast push degli eventi del client (best-effort, non-blocking).
+      // Errori swallowed: il sync deve riuscire anche se Web Push è down o
+      // VAPID non è configurato.
+      if (events && events.length) {
+        try {
+          const stats = await broadcastEvents({ dao, sender, code, excludeDeviceId: deviceId, events });
+          if (stats.sent || stats.failed) {
+            report.info('push broadcast', { events: events.length, ...stats });
+          }
+        } catch (e) {
+          report.warn('push broadcast failed', { error: e.message });
+        }
       }
 
       return json(payload);

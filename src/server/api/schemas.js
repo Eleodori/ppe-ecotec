@@ -33,10 +33,23 @@ export const stateSyncGetQuery = z.object({
   restore:   z.string().optional(),       // YYYY-MM-DD = restore
 });
 
+// pushEventSchema è dichiarato sotto ma stateSyncPostBody lo referenzia.
+// Per ridurre la dipendenza circolare lo dichiaro inline qui.
+const _pushEventInline = z.object({
+  pv: z.number().int().positive(),
+  type: z.enum(['state-change']),
+  fromStatus: z.string().max(20).optional(),
+  toStatus: z.string().max(20),
+  deviceLabel: z.string().max(120).optional(),
+  ts: z.number().int().positive(),
+});
+
 export const stateSyncPostBody = z.object({
   code: codeSchema,
   userState: userStateSchema,
-  replace: z.boolean().optional(),         // true = sovrascrive senza merge
+  replace: z.boolean().optional(),                          // true = sovrascrive senza merge
+  deviceId: z.string().regex(/^[a-zA-Z0-9-]{8,64}$/).optional(),
+  events: z.array(_pushEventInline).max(50).optional(),     // eventi da broadcastare via push
 });
 
 export const photoSyncGetQuery = z.object({
@@ -68,3 +81,43 @@ export const distanceMatrixBody = z.object({
   d => d.sources.length * d.destinations.length <= 3500,
   { message: 'Troppi elementi (sources × destinations > 3500)' }
 );
+
+// === Push notifications ===
+// deviceId: identificatore stabile generato dal client (UUID v4) per
+// distinguere i dispositivi sullo stesso codice sync.
+export const deviceIdSchema = z.string().regex(
+  /^[a-zA-Z0-9-]{8,64}$/,
+  'deviceId non valido'
+);
+
+// Subscription Web Push standard (browser PushSubscription.toJSON()).
+export const pushSubscriptionSchema = z.object({
+  endpoint: z.string().url().max(2048),
+  keys: z.object({
+    p256dh: z.string().min(1).max(256),
+    auth: z.string().min(1).max(64),
+  }),
+});
+
+export const pushSubscribePostBody = z.object({
+  code: codeSchema,
+  deviceId: deviceIdSchema,
+  deviceLabel: z.string().max(120).optional(),
+  subscription: pushSubscriptionSchema,
+});
+
+export const pushSubscribeDeleteQuery = z.object({
+  code: codeSchema,
+  deviceId: deviceIdSchema,
+});
+
+// Evento push allegato al body di state-sync POST. Il client li accumula tra
+// un sync e l'altro e li svuota qui; il server li traduce in notifiche.
+export const pushEventSchema = z.object({
+  pv: z.number().int().positive(),
+  type: z.enum(['state-change']),
+  fromStatus: z.string().max(20).optional(),
+  toStatus: z.string().max(20),
+  deviceLabel: z.string().max(120).optional(),
+  ts: z.number().int().positive(),
+});

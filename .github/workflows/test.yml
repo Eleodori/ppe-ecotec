@@ -13,18 +13,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      # I test della logica core usano solo moduli built-in di Node (node:test):
-      # nessun npm install necessario per i test.
-      - name: Unit tests (core logic)
+      # I test integration (state-sync, photo-sync, push-subscribe, …)
+      # importano zod: serve `npm install` prima di eseguirli.
+      - name: Install deps
+        run: npm install --no-audit --no-fund
+      - name: Unit + integration tests
         run: node --test tests/*.test.js
       - name: Syntax check Netlify Functions
         run: |
           for f in netlify/functions/*.mjs; do node --check "$f"; done
 
-      # Tooling di qualità: ESLint + JSDoc typecheck. Dopo Fase 3 sono BLOCCANTI:
+      # Tooling di qualità: ESLint + JSDoc typecheck. Bloccanti dalla Fase 3:
       # ogni PR deve passare lint e typecheck per essere mergiabile.
-      - name: Install deps
-        run: npm install --no-audit --no-fund
       - name: ESLint
         run: npm run lint
       - name: TypeScript JSDoc check

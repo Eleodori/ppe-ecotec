@@ -140,6 +140,82 @@ Cancella il blob. **204** sempre, anche se l'id non esiste (idempotente).
 
 ---
 
+## `/.netlify/functions/push-subscribe` — Web Push subscription
+
+Registrazione/revoca subscription Web Push per device, lette poi da
+`state-sync` per inviare notifiche cross-device su cambio di stato PV.
+Richiede `VAPID_*` env vars: senza, `GET` ritorna `configured: false` e
+`POST` risponde `503 PUSH_NOT_CONFIGURED`.
+
+### `GET`
+
+Anonimo. Ritorna:
+```json
+{ "configured": true, "publicKey": "BNh…" }
+```
+Il client usa `publicKey` come `applicationServerKey` per `PushManager.subscribe()`.
+Quando `configured: false` il client nasconde il toggle "Notifiche push".
+
+### `POST`
+
+```json
+{
+  "code": "ABCD1234",
+  "deviceId": "uuid-v4-lowercase-hex",
+  "deviceLabel": "iPhone Michele",
+  "subscription": {
+    "endpoint": "https://fcm.googleapis.com/fcm/send/…",
+    "keys": { "p256dh": "…", "auth": "…" }
+  }
+}
+```
+
+Risposta **200** `{ ok: true }`. Idempotente per `deviceId`: una seconda POST
+con lo stesso device aggiorna la subscription (utile dopo rotazione delle
+chiavi push del browser).
+
+Errori:
+- **400 INVALID_BODY**: schema Zod fallito (endpoint non-URL, keys mancanti, deviceId < 8 chars, code malformato)
+- **429 RATE_LIMITED**: troppe richieste (vedi tabella rate limits)
+- **503 PUSH_NOT_CONFIGURED**: VAPID env vars assenti sul server
+
+### `DELETE ?code=XXXX&deviceId=YYY`
+
+Revoca la subscription. **204** sempre (idempotente).
+
+---
+
+## Eventi push da state-sync
+
+`POST /state-sync` accetta opzionalmente `deviceId` ed `events`:
+
+```json
+{
+  "code": "ABCD1234",
+  "userState": { … },
+  "deviceId": "uuid-…",
+  "events": [
+    {
+      "pv": 47638,
+      "type": "state-change",
+      "fromStatus": "inst-todo",
+      "toStatus": "completato",
+      "deviceLabel": "iPhone Michele",
+      "ts": 1718000000000
+    }
+  ]
+}
+```
+
+Dopo il merge, il server itera `events` e invia una notifica Web Push a tutte
+le subscription registrate sul codice **tranne** quella corrispondente al
+`deviceId` originante (no self-notify). Errori del broadcast sono swallowed:
+il sync ritorna 200 anche se Web Push è down.
+
+Limite: max **50** eventi per richiesta. Oltre, Zod risponde 400.
+
+---
+
 ## Rate limits in sintesi
 
 | Endpoint | Burst | Refill | Razionale |
@@ -148,6 +224,7 @@ Cancella il blob. **204** sempre, anche se l'id non esiste (idempotente).
 | `GET/POST /state-sync` | 60 | 30/min | Anti-DDoS, traffico utente reale ~10/min |
 | `POST/DELETE /photo-sync` | 30 | 20/min | Scrive storage |
 | `GET /photo-sync` | 80 | 60/min | Read cheap |
+| `POST/DELETE /push-subscribe` | 20 | 10/min | Scrive storage |
 
 Bucket per `(scope, IP)`. TTL bucket dimenticato: 1 ora.
 

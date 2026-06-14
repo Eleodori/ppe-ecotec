@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const {
   effectiveFlags, statusOf,
   nextStateOverride, nextImportOverride, computeStateDiff,
+  planimetriaStatus, setPlanimetriaDate, setPlanimetriaOverride,
 } = require('../src/core/pv-state.js');
 
 const NOW = 1_700_000_000_000;
@@ -140,6 +141,106 @@ test('computeStateDiff: classifica correttamente', () => {
   assert.deepEqual(diff.anomalies.map(c => c.pv), [300]);
   assert.deepEqual(diff.notFound, [999]);
   assert.deepEqual(diff.same.sort(), [100, 200]);
+});
+
+// === planimetriaStatus / setPlanimetriaDate / setPlanimetriaOverride ===
+
+// Helper: timestamp a metà di un giorno specifico (TZ locale), evita salti DST.
+const dayMs = (y, m, d) => new Date(y, m - 1, d, 12, 0, 0).getTime();
+
+test('planimetriaStatus: senza data → missing', () => {
+  const s = planimetriaStatus({}, 24, NOW);
+  assert.equal(s.status, 'missing');
+  assert.equal(s.lastDate, null);
+  assert.equal(s.expiryDate, null);
+  assert.equal(s.intervalMonths, 24, 'usa il globale anche senza data');
+});
+
+test('planimetriaStatus: data 1 anno fa, intervallo 24m → ok (~365gg)', () => {
+  // Reference: oggi = 15 giugno 2025. lastDate = 15 giugno 2024 → expiry 15 giu 2026 → 365gg.
+  const now = dayMs(2025, 6, 15);
+  const us = { planimetria: { lastDate: '2024-06-15' } };
+  const s = planimetriaStatus(us, 24, now);
+  assert.equal(s.status, 'ok');
+  assert.equal(s.expiryDate, '2026-06-15');
+  assert.ok(s.daysToExpiry > 30 && s.daysToExpiry < 380, `daysToExpiry=${s.daysToExpiry}`);
+});
+
+test('planimetriaStatus: a 20 giorni dalla scadenza → expiring', () => {
+  // 15 giu 2025 = oggi, intervallo 24m → lastDate = 26 giu 2023 → expiry 26 giu 2025 → 11gg.
+  const now = dayMs(2025, 6, 15);
+  const us = { planimetria: { lastDate: '2023-06-26' } };
+  const s = planimetriaStatus(us, 24, now);
+  assert.equal(s.status, 'expiring');
+  assert.equal(s.daysToExpiry, 11);
+});
+
+test('planimetriaStatus: oltre la scadenza → expired (giorni < 0)', () => {
+  const now = dayMs(2025, 6, 15);
+  const us = { planimetria: { lastDate: '2023-01-01' } }; // expiry 2025-01-01
+  const s = planimetriaStatus(us, 24, now);
+  assert.equal(s.status, 'expired');
+  assert.ok(s.daysToExpiry < 0, `daysToExpiry deve essere negativo, è ${s.daysToExpiry}`);
+});
+
+test('planimetriaStatus: override per-PV vince sul globale', () => {
+  // Globale 24m → sarebbe expired. Override 36m → ok (mancano ~12 mesi).
+  const now = dayMs(2025, 6, 15);
+  const us = { planimetria: { lastDate: '2023-06-01', intervalMonthsOverride: 36 } };
+  const s = planimetriaStatus(us, 24, now);
+  assert.equal(s.status, 'ok');
+  assert.equal(s.intervalMonths, 36);
+  assert.equal(s.expiryDate, '2026-06-01');
+});
+
+test('planimetriaStatus: lastDate malformata → missing (graceful)', () => {
+  const s = planimetriaStatus({ planimetria: { lastDate: '15/06/2024' } }, 24, NOW);
+  assert.equal(s.status, 'missing', 'formato non ISO non rompe il render');
+});
+
+test('planimetriaStatus: globalIntervalMonths invalido → fallback 24', () => {
+  const s = planimetriaStatus({}, 0, NOW);
+  assert.equal(s.intervalMonths, 24);
+});
+
+test('setPlanimetriaDate: producer puro setta lastDate e bumpa updatedAt', () => {
+  const next = setPlanimetriaDate('2026-01-15')({}, NOW);
+  assert.equal(next.planimetria.lastDate, '2026-01-15');
+  assert.equal(next.updatedAt, NOW);
+});
+
+test('setPlanimetriaDate(null) rimuove la data ma preserva override', () => {
+  const cur = { planimetria: { lastDate: '2024-01-01', intervalMonthsOverride: 36 } };
+  const next = setPlanimetriaDate(null)(cur, NOW);
+  assert.equal(next.planimetria.lastDate, undefined);
+  assert.equal(next.planimetria.intervalMonthsOverride, 36);
+});
+
+test('setPlanimetriaDate(null) rimuove planimetria se vuota', () => {
+  const cur = { planimetria: { lastDate: '2024-01-01' } };
+  const next = setPlanimetriaDate(null)(cur, NOW);
+  assert.equal(next.planimetria, undefined);
+});
+
+test('setPlanimetriaOverride: setta override, mantiene lastDate', () => {
+  const cur = { planimetria: { lastDate: '2024-01-01' } };
+  const next = setPlanimetriaOverride(36)(cur, NOW);
+  assert.equal(next.planimetria.lastDate, '2024-01-01');
+  assert.equal(next.planimetria.intervalMonthsOverride, 36);
+});
+
+test('setPlanimetriaOverride(null) rimuove override ma preserva lastDate', () => {
+  const cur = { planimetria: { lastDate: '2024-01-01', intervalMonthsOverride: 36 } };
+  const next = setPlanimetriaOverride(null)(cur, NOW);
+  assert.equal(next.planimetria.lastDate, '2024-01-01');
+  assert.equal(next.planimetria.intervalMonthsOverride, undefined);
+});
+
+test('setPlanimetriaDate: NON muta l\'input', () => {
+  const cur = { planimetria: { lastDate: '2024-01-01' } };
+  const frozen = JSON.parse(JSON.stringify(cur));
+  setPlanimetriaDate('2026-01-15')(cur, NOW);
+  assert.deepEqual(cur, frozen);
 });
 
 test('computeStateDiff: rispetta override utente', () => {
