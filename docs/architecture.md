@@ -129,3 +129,55 @@ chiara.
 - ✓ Impossibile dimenticare di rinfrescare un pezzo (M3 sparirebbe).
 - ✗ Qualche micro-ottimizzazione persa (alcune azioni rinfrescavano meno cose).
   Trascurabile rispetto al volume di lavoro UI attuale.
+
+---
+
+## ADR-006 — Scadenze planimetrie: feature "v2" inclusa con riserva
+
+**Stato:** accepted (2026-06)
+
+**Contesto.** Il progetto nasce come tool *single-shot* per una commessa
+specifica (PEE — Ecotec/Marit/Iplanet): tracciare on-the-road i ~3000 PV
+una volta sola fino al loro completamento, poi archiviare. Niente uso
+continuativo previsto.
+
+Durante la preparazione della demo IP è stata aggiunta una feature di
+promemoria su scadenze biennali delle planimetrie (Fase A — commit `f50dd25`):
+data dell'ultima planimetria editabile per-PV, cadenza globale + override,
+dashboard "Planimetrie in scadenza". Questa feature presuppone uso
+**continuativo** del software anni dopo la fine della commessa.
+
+**Tensione architetturale.** Un nuovo dev che entra nel codice si chiede
+"questo è un tool di campagna installazioni o un CRM di manutenzione?".
+Le due cose vivono bene insieme solo se decidiamo esplicitamente cosa
+vogliamo essere.
+
+**Decisione.**
+1. La feature resta nel codice. Motivazione commerciale: serve come
+   "amo" per la demo IP (mostra che il prodotto può estendere il ciclo
+   di vita oltre la singola commessa).
+2. La data ultima planimetria è **inferita** da `installazione_fatta_ts`
+   se non specificata (`planimetriaStatus.inferredFromInstall === true`).
+   L'utente NON deve inserire a mano una data che il sistema già conosce
+   — l'override esiste solo per casi anomali (planimetria rifatta dopo
+   l'installazione iniziale).
+3. Se la commessa IP **non** si concretizza in un prodotto manutentivo
+   continuativo, candidare la feature alla rimozione. Punti di rimozione:
+   - `src/core/pv-state.js`: `planimetriaStatus`, `setPlanimetriaDate`,
+     `setPlanimetriaOverride` + costanti
+   - `index.html`: blocco "Planimetria" in `renderDetail`, sezione
+     `renderPlanimDashboard`, `STATE.planimetriaIntervalMonths`
+   - I test relativi in `tests/pv-state.test.js`
+   - La sezione HTML del dashboard
+   - Storage utente: il campo `userState[pv].planimetria` resta dormiente
+     senza danni (LWW gestisce, niente migrazione richiesta).
+
+**Conseguenze.**
+- ✓ Demo IP racconta un prodotto "che ricorda da solo" — credibile come
+  v2.
+- ✓ Auto-inferenza = zero attrito per l'utente single-shot: se non vuole
+  pensarci, non deve.
+- ✗ Il codice contiene un pezzo che potrebbe non servire mai a Marit.
+  L'ADR è il modo per non dimenticarsene.
+- ✗ Lo `userState` schema cresce di un campo opzionale (`planimetria`):
+  l'ingombro è trascurabile (~30 byte/PV se settato).

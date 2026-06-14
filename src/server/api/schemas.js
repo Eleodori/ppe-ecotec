@@ -121,3 +121,40 @@ export const pushEventSchema = z.object({
   deviceLabel: z.string().max(120).optional(),
   ts: z.number().int().positive(),
 });
+
+// === Portale gestori PV (Fase 3) ===
+// Token opaco generato lato server: 24+ char hex case-insensitive. Lo possiamo
+// validare strict perché lo emettiamo noi.
+export const portalTokenSchema = z.string().regex(
+  /^[a-f0-9]{24,64}$/i,
+  'token portale non valido'
+);
+
+// Snapshot dei campi master del PV congelati al momento della creazione del link.
+// Manteniamo solo i campi che il portale gestore deve mostrare — niente PII
+// che non sia già pubblica (l'indirizzo del PV lo è).
+export const pvSnapshotSchema = z.object({
+  comune: z.string().max(120),
+  prov: z.string().max(4).optional(),
+  regione: z.string().max(120),
+  indirizzo: z.string().max(240).optional(),
+  name: z.string().max(240).optional(),
+  ragSoc: z.string().max(240).optional(),
+  lat: z.number().finite().min(-90).max(90).optional(),
+  lng: z.number().finite().min(-180).max(180).optional(),
+});
+
+export const portalTokenPostBody = z.object({
+  code: codeSchema,
+  pvId: z.number().int().positive(),
+  snapshot: pvSnapshotSchema,
+});
+
+export const portalTokenDeleteQuery = z.object({
+  code: codeSchema,
+  token: portalTokenSchema,
+});
+
+export const pvPublicGetQuery = z.object({
+  t: portalTokenSchema,
+});

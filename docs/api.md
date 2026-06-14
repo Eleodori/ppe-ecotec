@@ -216,6 +216,84 @@ Limite: max **50** eventi per richiesta. Oltre, Zod risponde 400.
 
 ---
 
+## `/.netlify/functions/portal-token` — Link gestori PV
+
+Genera e revoca token opachi che danno accesso read-only a un PV tramite la
+pagina `/portal.html`. Authz pre-Fase 4: chiunque possieda il syncCode
+(`code` nel body) può generare link per quel tenant.
+
+### `POST`
+
+```json
+{
+  "code": "ABCD1234",
+  "pvId": 47638,
+  "snapshot": {
+    "comune": "Acerra",
+    "prov": "NA",
+    "regione": "Campania",
+    "indirizzo": "Via Roma 12",
+    "ragSoc": "Tabacchi Esempio Srl",
+    "lat": 40.94,
+    "lng": 14.37
+  }
+}
+```
+
+Risposta **200** `{ token: "<32-hex-chars>" }`. Il client costruisce l'URL
+come `${origin}/portal.html?t=${token}` e lo condivide via WhatsApp/email/SMS.
+Lo `snapshot` viene congelato nell'entry così il portale resta navigabile
+anche se l'anagrafica del PV cambia.
+
+Errori: **400 INVALID_BODY** (Zod), **429 RATE_LIMITED**.
+
+### `DELETE ?code=XXXX&token=YYY`
+
+Revoca il token. **204** sempre (idempotente). **403 FORBIDDEN** se il
+token esiste ma appartiene a un altro syncCode.
+
+---
+
+## `/.netlify/functions/pv-public` — Vista pubblica del portale
+
+Endpoint **anonimo** consumato da `portal.html`. Niente codice nel request:
+il token nell'URL è l'unica credenziale necessaria.
+
+### `GET ?t=TOKEN`
+
+Risposta **200**:
+
+```json
+{
+  "pv": 47638,
+  "snapshot": { "comune": "...", "regione": "...", "indirizzo": "..." },
+  "status": "installed",
+  "statusLabel": "Installazione completata",
+  "statusTone": "done",
+  "milestones": [
+    { "type": "sopralluogo", "label": "Sopralluogo eseguito", "ts": 1718000000000 },
+    { "type": "planimetria", "label": "Planimetria ricevuta", "ts": 1718800000000 },
+    { "type": "installazione", "label": "Installazione completata", "ts": 1719200000000 }
+  ],
+  "createdAt": 1717000000000,
+  "syncedAt": 1719300000000
+}
+```
+
+Status enum: `unknown | sopr_done | planim_received | installed | suspended`.
+Toni UI: `pending | ok | ready | done`.
+
+Lo status NON usa il dataset master: deriva esclusivamente dai timestamp e
+override presenti in userState. Cioè il portale mostra **solo eventi
+positivi che il crew ha attivamente dichiarato**, mai inferenze ottimistiche
+("sopr-todo" dal master).
+
+Errori: **400 INVALID_QUERY** (token malformato), **404 NOT_FOUND** (token
+sconosciuto/scaduto — risposta generica, non confermiamo neanche se la
+sintassi fosse valida), **429 RATE_LIMITED**.
+
+---
+
 ## Rate limits in sintesi
 
 | Endpoint | Burst | Refill | Razionale |
@@ -225,6 +303,8 @@ Limite: max **50** eventi per richiesta. Oltre, Zod risponde 400.
 | `POST/DELETE /photo-sync` | 30 | 20/min | Scrive storage |
 | `GET /photo-sync` | 80 | 60/min | Read cheap |
 | `POST/DELETE /push-subscribe` | 20 | 10/min | Scrive storage |
+| `POST/DELETE /portal-token` | 20 | 10/min | Scrive storage |
+| `GET /pv-public` | 30 | 20/min | Pubblica anonima, anti-enumerazione |
 
 Bucket per `(scope, IP)`. TTL bucket dimenticato: 1 ora.
 

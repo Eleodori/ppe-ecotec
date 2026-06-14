@@ -203,6 +203,36 @@ test('planimetriaStatus: globalIntervalMonths invalido → fallback 24', () => {
   assert.equal(s.intervalMonths, 24);
 });
 
+test('planimetriaStatus: senza lastDate ma con installazione_fatta_ts → inferisce dalla data installazione', () => {
+  // 24 mesi fa rispetto al "now" → expiring/expired al limite. Verifichiamo la
+  // logica: la data viene presa dal timestamp installazione e il flag è settato.
+  const now = dayMs(2025, 6, 15);
+  const installTs = dayMs(2024, 6, 15); // installato 12 mesi fa
+  const us = { installazione_fatta_ts: installTs };
+  const s = planimetriaStatus(us, 24, now);
+  assert.equal(s.lastDate, '2024-06-15', 'derivata dal timestamp install');
+  assert.equal(s.inferredFromInstall, true);
+  assert.equal(s.status, 'ok', 'a 12 mesi su 24 ancora ok');
+  assert.equal(s.expiryDate, '2026-06-15');
+});
+
+test('planimetriaStatus: lastDate esplicita VINCE sull\'inferenza da installazione', () => {
+  const now = dayMs(2025, 6, 15);
+  const us = {
+    installazione_fatta_ts: dayMs(2020, 1, 1),    // vecchia
+    planimetria: { lastDate: '2024-12-01' },       // utente l'ha aggiornata di recente
+  };
+  const s = planimetriaStatus(us, 24, now);
+  assert.equal(s.lastDate, '2024-12-01', 'override manuale vince');
+  assert.equal(s.inferredFromInstall, false);
+});
+
+test('planimetriaStatus: senza dati di alcun tipo → missing (nessuna inferenza possibile)', () => {
+  const s = planimetriaStatus({ note: 'qualcosa' }, 24, NOW);
+  assert.equal(s.status, 'missing');
+  assert.equal(s.inferredFromInstall, false);
+});
+
 test('setPlanimetriaDate: producer puro setta lastDate e bumpa updatedAt', () => {
   const next = setPlanimetriaDate('2026-01-15')({}, NOW);
   assert.equal(next.planimetria.lastDate, '2026-01-15');

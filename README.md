@@ -30,9 +30,12 @@ netlify/functions/
   state-sync.mjs               sync userState multi-dispositivo + snapshot + push broadcast
   photo-sync.mjs               storage foto compresse client-side
   push-subscribe.mjs           subscription Web Push per device (registra/revoca)
+  portal-token.mjs             genera/revoca link gestori PV (con snapshot congelato)
+  pv-public.mjs                vista anonima del portale gestori (read-only)
   health.mjs                   shallow/deep/metrics
 src/server/push/             logica broadcast + sender web-push (testati)
 sw.js                          service worker: gestisce push e click → seleziona PV
+portal.html                    pagina pubblica del portale gestori PV (mobile-first)
 docs/architecture.md         ADR (Architecture Decision Records)
 netlify.toml                 cache headers, redirect
 .github/workflows/test.yml   CI: test + lint + typecheck

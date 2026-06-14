@@ -149,3 +149,49 @@ test('DAO: pushSubRemove di device inesistente non throwa', async () => {
   await d.pushSubRemove('A', 'ghost'); // non deve esplodere
   assert.deepEqual(await d.pushSubList('A'), []);
 });
+
+// === portalTokenSet / portalTokenGet / portalTokenDelete ===
+
+const portalEntry = (overrides = {}) => ({
+  code: 'CODE-AB1234',
+  pvId: 47638,
+  snapshot: { comune: 'Acerra', prov: 'NA', regione: 'Campania', indirizzo: 'Via Roma 12' },
+  createdAt: 1700000000000,
+  ...overrides,
+});
+
+test('DAO: portalTokenGet ritorna null per token sconosciuto', async () => {
+  const d = await dao();
+  assert.equal(await d.portalTokenGet('deadbeef'), null);
+});
+
+test('DAO: portalTokenSet/Get roundtrip', async () => {
+  const d = await dao();
+  await d.portalTokenSet('abc123', portalEntry());
+  const got = await d.portalTokenGet('abc123');
+  assert.equal(got.pvId, 47638);
+  assert.equal(got.code, 'CODE-AB1234');
+  assert.equal(got.snapshot.comune, 'Acerra');
+});
+
+test('DAO: portalTokenSet deep-clone (no aliasing con chiamante)', async () => {
+  const d = await dao();
+  const entry = portalEntry();
+  await d.portalTokenSet('tok-x', entry);
+  entry.pvId = 99999;
+  const got = await d.portalTokenGet('tok-x');
+  assert.equal(got.pvId, 47638, 'la mutazione esterna non deve sporcare il valore salvato');
+});
+
+test('DAO: portalTokenDelete rimuove il token', async () => {
+  const d = await dao();
+  await d.portalTokenSet('tok-del', portalEntry());
+  await d.portalTokenDelete('tok-del');
+  assert.equal(await d.portalTokenGet('tok-del'), null);
+});
+
+test('DAO: portalTokenDelete di token inesistente non throwa', async () => {
+  const d = await dao();
+  await d.portalTokenDelete('ghost');
+  assert.equal(await d.portalTokenGet('ghost'), null);
+});
