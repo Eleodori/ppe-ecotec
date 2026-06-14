@@ -16,6 +16,7 @@ export function makeMemoryDao() {
   const photos   = new Map();           // `${codeHash}/${photoId}` → { data, meta }
   const orsCache = new Map();           // payloadHash → result
   const pushSubs = new Map();           // codeHash → Map(deviceId → PushSubRecord)
+  const portalTokens = new Map();       // token → PortalTokenEntry
 
   const orsCacheKey = payload => {
     const fmt = c => `${parseFloat((c.lat || 0).toFixed(5))},${parseFloat((c.lng || 0).toFixed(5))}`;
@@ -66,6 +67,16 @@ export function makeMemoryDao() {
 
     async distanceCacheGet(payload) { return orsCache.get(orsCacheKey(payload)) || null; },
     async distanceCacheSet(payload, result) { orsCache.set(orsCacheKey(payload), result); },
+
+    async portalTokenSet(token, entry) {
+      portalTokens.set(token, JSON.parse(JSON.stringify(entry)));
+    },
+    async portalTokenGet(token) {
+      return portalTokens.get(token) || null;
+    },
+    async portalTokenDelete(token) {
+      portalTokens.delete(token);
+    },
 
     async pushSubAdd(code, deviceId, record) {
       const h = hashCode(code);

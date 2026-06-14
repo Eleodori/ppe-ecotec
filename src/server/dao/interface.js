@@ -30,6 +30,12 @@
  * @property {string} [deviceLabel]
  * @property {number} createdAt
  *
+ * @typedef {Object} PortalTokenEntry
+ * @property {string} code          syncCode plaintext (è già il segreto del tenant)
+ * @property {number} pvId
+ * @property {object} snapshot      campi master del PV congelati (comune, prov, regione, indirizzo, name, ragSoc, lat, lng)
+ * @property {number} createdAt
+ *
  * @typedef {Object} Dao
  *
  * @property {(code: string) => Promise<StateDoc|null>} stateGet
@@ -74,6 +80,15 @@
  *
  * @property {(code: string, deviceId: string) => Promise<void>} pushSubRemove
  *           Rimuove la subscription di un device.
+ *
+ * @property {(token: string, entry: PortalTokenEntry) => Promise<void>} portalTokenSet
+ *           Indicizza un token portale → {code, pvId, snapshot}. Idempotente.
+ *
+ * @property {(token: string) => Promise<PortalTokenEntry|null>} portalTokenGet
+ *           Lookup di un token (anonimo, opaco). null se non esiste.
+ *
+ * @property {(token: string) => Promise<void>} portalTokenDelete
+ *           Revoca il token. Silent se non esiste.
  */
 
 // Nessun export: questo file è puro JSDoc per il typecheck. Le implementazioni

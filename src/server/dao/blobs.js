@@ -103,6 +103,21 @@ export function makeBlobsDao() {
       await store.set(key, JSON.stringify(result), { metadata: { createdAt: Date.now() } });
     },
 
+    async portalTokenSet(token, entry) {
+      // Token già random opaco: non serve hashare. Store dedicato.
+      const store = getStore('portal-tokens');
+      await store.set(token, JSON.stringify(entry));
+    },
+    async portalTokenGet(token) {
+      const store = getStore('portal-tokens');
+      const blob = await store.get(token, { type: 'json' }).catch(() => null);
+      return blob || null;
+    },
+    async portalTokenDelete(token) {
+      const store = getStore('portal-tokens');
+      await store.delete(token).catch(() => {});
+    },
+
     async pushSubAdd(code, deviceId, record) {
       const store = userSync();
       await store.set(`${hashCode(code)}:push:${deviceId}`, JSON.stringify(record));
