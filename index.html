@@ -3431,7 +3431,7 @@ function toast(msg, ms=1800) {
 
 // Build stamp visibile all'utente per capire se il browser sta servendo la versione
 // vecchia dalla cache. Bumpare ad ogni release significativa.
-const APP_VERSION = '2026-06-14.6';
+const APP_VERSION = '2026-06-14.7';
 
 const MAP_THEMES = {
   light: {
@@ -3982,6 +3982,11 @@ function renderDetail(p) {
   btns.push(`<a class="btn navigate" href="${ggUrl}" target="_blank" rel="noopener">▸ Naviga</a>`);
   btns.push(`<button class="btn" onclick="togglePlanPv(${p.pv})">${planHas(p.pv) ? '📅 Togli dal piano' : '📅 Aggiungi al piano'}</button>`);
   btns.push(`<button class="btn" onclick="openPvEditor(${p.pv})">✏ Modifica dati</button>`);
+  if (STATE.position) {
+    const dKm = haversine(STATE.position, p);
+    const dStr = dKm < 1 ? Math.round(dKm * 1000) + 'm' : dKm.toFixed(1) + 'km';
+    btns.push(`<button class="btn" onclick="correctPvHere(${p.pv})" title="Sposta le coord del PV alla tua posizione attuale">📍 Correggi qui <span style="opacity:.6;font-weight:400;font-size:11px">(${dStr})</span></button>`);
+  }
   btns.push(`<button class="btn" onclick="openPortalShare(${p.pv})">🌐 Link gestore</button>`);
   if (showSoprBtn) btns.push(`<button class="btn primary-sopr" onclick="markSopralluogoFatto(${p.pv})">✓ Sopralluogo fatto</button>`);
   if (showPlanimBtn) btns.push(`<button class="btn primary-inst" onclick="markPlanimetriaRicevuta(${p.pv})">📐 Planimetria ricevuta</button>`);
@@ -4795,6 +4800,33 @@ window.openPvEditor = (pvId) => {
   ep._newMode = false;
   ep.classList.add('open');
   eb.classList.add('open');
+};
+
+// Correzione rapida delle coordinate: in 1 tap aggiorna lat/lng di un PV alla
+// posizione GPS corrente. Usato quando si è fisicamente sul PV ma i marker
+// sulla mappa cadono lontani (data quality del master). Salva un override
+// in userState[pv].fields.lat/lng → sincronizzato cross-device.
+window.correctPvHere = function (pvId) {
+  if (!STATE.position) { toast('GPS non attivo. Premi 📍 in alto.'); return; }
+  const p = PV_BY_ID[pvId];
+  if (!p) { toast('PV non trovato'); return; }
+  const dKm = haversine(STATE.position, p);
+  const dStr = dKm < 1 ? Math.round(dKm * 1000) + 'm' : dKm.toFixed(2) + 'km';
+  const msg = `Spostare le coordinate del PV ${pvId} alla tua posizione attuale?\n\nDistanza dal punto precedente: ${dStr}\nNuove coord: ${STATE.position.lat.toFixed(6)}, ${STATE.position.lng.toFixed(6)}`;
+  if (!confirm(msg)) return;
+  // Usa setPvFields preservando gli eventuali override anagrafici esistenti.
+  const disp = pvDisplay(p);
+  window.setPvFields(pvId, {
+    name: p.name,
+    comune: disp.comune,
+    prov: disp.prov,
+    regione: p.regione,
+    indirizzo: disp.indirizzo,
+    ragSoc: disp.ragSoc,
+    lat: STATE.position.lat,
+    lng: STATE.position.lng,
+  });
+  toast(`PV ${pvId} — coords aggiornate (era a ${dStr})`, 3500);
 };
 
 window.openNewPvEditor = () => {
