@@ -460,6 +460,8 @@ aside {
   font-family: var(--font-sans);
 }
 .edit-field input:focus { border-color: var(--me); }
+.edit-field-row { display: flex; gap: 8px; margin: 0; }
+.edit-field-row .edit-field { margin-bottom: 10px; }
 .edit-actions { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
 .edit-actions .btn { flex: 1 1 auto; padding: 9px 10px; font-size: 13px; }
 .edit-actions .btn.ghost-undo { flex-basis: 100%; margin-bottom: 4px; }
@@ -1487,6 +1489,7 @@ aside {
     <div id="syncSection"></div>
     <hr>
     <div class="menu-section">Dati</div>
+    <button id="btnNewPv">➕ Nuovo PV</button>
     <button id="btnExportJson">⬇ Backup (JSON)</button>
     <button id="btnExportCsv">⬇ Completati (CSV)</button>
     <button id="btnImportJson">⬆ Importa backup</button>
@@ -1606,11 +1609,20 @@ aside {
 
   <div class="edit-pop-backdrop" id="editPopBackdrop"></div>
   <div class="edit-pop" id="editPop">
-    <div class="menu-section">Modifica dati PV</div>
+    <div class="menu-section" id="editPopTitle">Modifica dati PV</div>
+    <label class="edit-field"><span>Nome / insegna</span><input type="text" id="editName" autocomplete="off"></label>
     <label class="edit-field"><span>Comune</span><input type="text" id="editComune" autocomplete="off"></label>
-    <label class="edit-field"><span>Provincia</span><input type="text" id="editProv" maxlength="2" autocomplete="off"></label>
+    <div class="edit-field-row">
+      <label class="edit-field" style="flex:0 0 90px"><span>Provincia</span><input type="text" id="editProv" maxlength="2" autocomplete="off"></label>
+      <label class="edit-field" style="flex:1"><span>Regione</span><input type="text" id="editRegione" autocomplete="off"></label>
+    </div>
     <label class="edit-field"><span>Indirizzo</span><input type="text" id="editIndirizzo" autocomplete="off"></label>
     <label class="edit-field"><span>Gestore</span><input type="text" id="editRagSoc" autocomplete="off"></label>
+    <div class="edit-field-row">
+      <label class="edit-field" style="flex:1"><span>Lat</span><input type="number" id="editLat" step="0.000001" inputmode="decimal" autocomplete="off"></label>
+      <label class="edit-field" style="flex:1"><span>Lng</span><input type="number" id="editLng" step="0.000001" inputmode="decimal" autocomplete="off"></label>
+    </div>
+    <button class="btn" id="editFromGps" type="button" style="margin:0 12px 6px;font-size:12px;padding:8px 10px">📍 Usa la mia posizione</button>
     <div class="edit-actions">
       <button class="btn ghost-undo" id="editReset">↶ Ripristina master</button>
       <button class="btn" id="editCancel">Annulla</button>
@@ -2824,6 +2836,8 @@ async function syncNow(interactive) {
     if (JSON.stringify(reconciled) !== JSON.stringify(STATE.userState)) {
       STATE.userState = reconciled;
       await Store.set('userState', JSON.stringify(STATE.userState));
+      // Riallinea master/coords/custom PVs col nuovo userState mergiato.
+      reconcileMaster();
       // Riallinea il piano dal merge se il server aveva una versione più recente
       const sp = STATE.userState.__dayPlan;
       if (sp && Array.isArray(sp.plan)) {
@@ -3417,7 +3431,7 @@ function toast(msg, ms=1800) {
 
 // Build stamp visibile all'utente per capire se il browser sta servendo la versione
 // vecchia dalla cache. Bumpare ad ogni release significativa.
-const APP_VERSION = '2026-06-14.5';
+const APP_VERSION = '2026-06-14.6';
 
 const MAP_THEMES = {
   light: {
@@ -4529,23 +4543,174 @@ async function deleteLightboxPhoto() {
   if (STATE.selectedPv === pv && PV_BY_ID[pv]) renderPhotoGrid(PV_BY_ID[pv]);
 }
 
-// Salva override locali di comune/prov/indirizzo/ragSoc. Passare null/'' come fields
-// resetta gli override e ripristina i valori master.
+// Salva override locali di comune/prov/regione/indirizzo/ragSoc/name/lat/lng.
+// Passare null/'' come fields resetta gli override e ripristina i valori master.
+//
+// Le stringhe vengono salvate solo se diverse dal master (evita rumore nel
+// userState). Per lat/lng accettiamo numeri finiti nei range valid, e in più
+// teniamo l'override solo se differisce di >1e-6 dal master (~10cm).
 window.setPvFields = _safeAction('setPvFields', (pvId, p, fields) => {
   updatePvEntry(pvId, cur => {
     const next = { ...cur };
-    if (!fields) { delete next.fields; return next; }
+    if (!fields) { delete next.fields; reconcileMaster(); return next; }
+    const isCustom = !!p._isCustom;
     const clean = {};
-    ['comune','prov','indirizzo','ragSoc'].forEach(k => {
+    // PV master: salva solo i diff dal master (così "reset" funziona).
+    // PV custom: il master non esiste, salva sempre tutti i fields non-vuoti.
+    ['comune','prov','regione','indirizzo','ragSoc','name'].forEach(k => {
       const v = (fields[k] || '').trim();
-      if (v && v !== p[k]) clean[k] = v;
+      if (v && (isCustom || v !== p[k])) clean[k] = v;
     });
+    const lat = parseFloat(fields.lat);
+    const lng = parseFloat(fields.lng);
+    if (Number.isFinite(lat) && lat >= -90 && lat <= 90 && (isCustom || Math.abs(lat - p.lat) > 1e-6)) clean.lat = lat;
+    if (Number.isFinite(lng) && lng >= -180 && lng <= 180 && (isCustom || Math.abs(lng - p.lng) > 1e-6)) clean.lng = lng;
     if (Object.keys(clean).length === 0) delete next.fields;
     else next.fields = clean;
     return next;
   });
+  reconcileMaster();
   _afterAction(pvId, p, `PV ${pvId} — dati aggiornati`);
 });
+
+// Crea un nuovo PV "custom" che vive solo in userState (non nel master
+// `pv_data.json`). Sincronizzato gratis via mergeStates LWW: gli altri device
+// lo vedranno comparire dopo il primo sync. ID generato in range 900000-999999
+// per non collidere col master.
+function nextCustomPvId() {
+  for (let i = 0; i < 200; i++) {
+    const id = 900000 + Math.floor(Math.random() * 100000);
+    if (!PV_BY_ID[id]) return id;
+  }
+  throw new Error('Impossibile generare un ID univoco (range custom esaurito?)');
+}
+
+window.createCustomPv = function (fields) {
+  const id = nextCustomPvId();
+  const now = Date.now();
+  const clean = {};
+  ['comune','prov','regione','indirizzo','ragSoc','name'].forEach(k => {
+    const v = (fields[k] || '').trim();
+    if (v) clean[k] = v;
+  });
+  const lat = parseFloat(fields.lat);
+  const lng = parseFloat(fields.lng);
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90 ||
+      !Number.isFinite(lng) || lng < -180 || lng > 180) {
+    toast('Coordinate non valide (lat -90..90, lng -180..180)', 3500);
+    return null;
+  }
+  clean.lat = lat;
+  clean.lng = lng;
+  STATE.userState[id] = {
+    isCustom: true,
+    fields: clean,
+    sopralluogo_richiesto: true,   // PV manuale → di default sopralluogo da fare
+    sopralluogo_fatto: false,
+    installazione_richiesta: false,
+    installazione_fatta: false,
+    sospeso: false,
+    updatedAt: now,
+  };
+  saveUserState();
+  reconcileMaster();
+  rerender('all');
+  addBreadcrumb('action', 'createCustomPv', { pv: id });
+  toast(`PV ${id} creato`, 2500);
+  // Centra la mappa sul nuovo PV
+  if (STATE.map) _doRecenter(lat, lng);
+  return id;
+};
+
+// === Riconciliazione master ↔ override ↔ custom PVs ===
+// Applica gli override `fields` su PV_BY_ID e materializza i PV custom in
+// PVS / PV_BY_ID. Chiamato:
+//   - al boot dopo loadFromStorage
+//   - dopo ogni mutazione che cambia fields/isCustom (setPvFields, createCustomPv)
+//   - dopo ogni sync che porta nuovo userState
+// Salva una copia dei coords/anagrafica del master originale alla prima chiamata,
+// così il "reset" su un singolo PV ritorna ai valori della fonte di verità.
+let _MASTER_SNAPSHOT = null;
+
+function reconcileMaster() {
+  if (!_MASTER_SNAPSHOT) {
+    _MASTER_SNAPSHOT = new Map();
+    for (const p of PVS) {
+      if (p._isCustom) continue;
+      _MASTER_SNAPSHOT.set(p.pv, {
+        lat: p.lat, lng: p.lng,
+        comune: p.comune, prov: p.prov, regione: p.regione,
+        indirizzo: p.indirizzo, ragSoc: p.ragSoc, name: p.name,
+      });
+    }
+  }
+  // 1) Reset master PVs ai valori originali, poi applica override fields.
+  for (const p of PVS) {
+    if (p._isCustom) continue;
+    const orig = _MASTER_SNAPSHOT.get(p.pv);
+    if (!orig) continue;
+    p.lat = orig.lat;
+    p.lng = orig.lng;
+    // comune/prov/etc restano accessibili sia direttamente sia via pvDisplay():
+    // gli override stringa li applichiamo direttamente sull'oggetto così tutti i
+    // call-site che leggono p.comune (e non pvDisplay) vedono il valore giusto.
+    p.comune = orig.comune;
+    p.prov = orig.prov;
+    p.regione = orig.regione;
+    p.indirizzo = orig.indirizzo;
+    p.ragSoc = orig.ragSoc;
+    p.name = orig.name;
+    const f = STATE.userState[p.pv] && STATE.userState[p.pv].fields;
+    if (f) {
+      if (Number.isFinite(f.lat)) p.lat = f.lat;
+      if (Number.isFinite(f.lng)) p.lng = f.lng;
+      ['comune','prov','regione','indirizzo','ragSoc','name'].forEach(k => {
+        if (typeof f[k] === 'string' && f[k]) p[k] = f[k];
+      });
+    }
+  }
+  // 2) Aggiungi/aggiorna PV custom dichiarati in userState.
+  // Prima rimuovo eventuali custom orfani (utente li ha cancellati).
+  const seenCustom = new Set();
+  for (const [k, v] of Object.entries(STATE.userState)) {
+    if (!v || !v.isCustom) continue;
+    const id = parseInt(k, 10);
+    if (!Number.isInteger(id) || id <= 0) continue;
+    const f = v.fields || {};
+    let cpv = PV_BY_ID[id];
+    if (!cpv || !cpv._isCustom) {
+      cpv = { pv: id, _isCustom: true };
+      PVS.push(cpv);
+      PV_BY_ID[id] = cpv;
+    }
+    cpv.regione = f.regione || 'PERSONALIZZATO';
+    cpv.comune = f.comune || '—';
+    cpv.prov = f.prov || '';
+    cpv.indirizzo = f.indirizzo || '';
+    cpv.ragSoc = f.ragSoc || '';
+    cpv.name = f.name || 'PV personalizzato';
+    cpv.addrGoogle = '';
+    cpv.lat = Number(f.lat) || 0;
+    cpv.lng = Number(f.lng) || 0;
+    cpv.phone = '';
+    cpv.note = '';
+    cpv.attivita_std = '';
+    cpv.sopralluogo_richiesto = !!v.sopralluogo_richiesto;
+    cpv.sopralluogo_fatto = !!v.sopralluogo_fatto;
+    cpv.installazione_richiesta = !!v.installazione_richiesta;
+    cpv.installazione_fatta = !!v.installazione_fatta;
+    cpv.sospeso = !!v.sospeso;
+    cpv.archivio_storico = false;
+    seenCustom.add(id);
+  }
+  // Rimuovi custom che non sono più in userState (es. eliminati su altro device)
+  for (let i = PVS.length - 1; i >= 0; i--) {
+    if (PVS[i]._isCustom && !seenCustom.has(PVS[i].pv)) {
+      delete PV_BY_ID[PVS[i].pv];
+      PVS.splice(i, 1);
+    }
+  }
+}
 
 // Apre il modal "Link gestore": genera un token portale (richiamando
 // /portal-token), costruisce l'URL e lo mostra con un pulsante Copia.
@@ -4614,13 +4779,41 @@ window.openPvEditor = (pvId) => {
   const p = PV_BY_ID[pvId];
   if (!p) return;
   const disp = pvDisplay(p);
+  document.getElementById('editName').value = p.name || '';
   document.getElementById('editComune').value = disp.comune || '';
   document.getElementById('editProv').value = disp.prov || '';
+  document.getElementById('editRegione').value = p.regione || '';
   document.getElementById('editIndirizzo').value = disp.indirizzo || '';
   document.getElementById('editRagSoc').value = disp.ragSoc || '';
+  document.getElementById('editLat').value = Number.isFinite(p.lat) ? p.lat : '';
+  document.getElementById('editLng').value = Number.isFinite(p.lng) ? p.lng : '';
+  document.getElementById('editPopTitle').textContent = `Modifica dati PV ${pvId}`;
+  document.getElementById('editReset').style.display = p._isCustom ? 'none' : '';
   const ep = document.getElementById('editPop');
   const eb = document.getElementById('editPopBackdrop');
   ep._pvId = pvId;
+  ep._newMode = false;
+  ep.classList.add('open');
+  eb.classList.add('open');
+};
+
+window.openNewPvEditor = () => {
+  document.getElementById('editName').value = '';
+  document.getElementById('editComune').value = '';
+  document.getElementById('editProv').value = '';
+  document.getElementById('editRegione').value = '';
+  document.getElementById('editIndirizzo').value = '';
+  document.getElementById('editRagSoc').value = '';
+  // Pre-compila coordinate con la posizione corrente se disponibile (utile sul campo).
+  const pos = STATE.position;
+  document.getElementById('editLat').value = pos ? pos.lat.toFixed(6) : '';
+  document.getElementById('editLng').value = pos ? pos.lng.toFixed(6) : '';
+  document.getElementById('editPopTitle').textContent = 'Nuovo PV';
+  document.getElementById('editReset').style.display = 'none';
+  const ep = document.getElementById('editPop');
+  const eb = document.getElementById('editPopBackdrop');
+  ep._pvId = null;
+  ep._newMode = true;
   ep.classList.add('open');
   eb.classList.add('open');
 };
@@ -4811,6 +5004,7 @@ function closeDetail() {
 
 async function init() {
   await loadFromStorage();
+  reconcileMaster();
   ensureDeviceId();
   // Probe config push in background — non blocca init, riallinea il menu sync
   // quando termina.
@@ -4983,22 +5177,41 @@ async function init() {
   editBackdrop.addEventListener('click', closeEditPop);
   document.getElementById('editCancel').addEventListener('click', closeEditPop);
   document.getElementById('editSave').addEventListener('click', () => {
-    const pvId = editPop._pvId;
-    if (!pvId) { closeEditPop(); return; }
-    window.setPvFields(pvId, {
+    const fields = {
+      name: document.getElementById('editName').value,
       comune: document.getElementById('editComune').value,
       prov: document.getElementById('editProv').value.toUpperCase(),
+      regione: document.getElementById('editRegione').value.toUpperCase(),
       indirizzo: document.getElementById('editIndirizzo').value,
       ragSoc: document.getElementById('editRagSoc').value,
-    });
+      lat: document.getElementById('editLat').value,
+      lng: document.getElementById('editLng').value,
+    };
+    if (editPop._newMode) {
+      if (!fields.comune.trim()) { toast('Inserisci almeno il comune', 2500); return; }
+      const newId = window.createCustomPv(fields);
+      if (newId) { closeEditPop(); selectPv(newId); }
+      return;
+    }
+    const pvId = editPop._pvId;
+    if (!pvId) { closeEditPop(); return; }
+    window.setPvFields(pvId, fields);
     closeEditPop();
   });
   document.getElementById('editReset').addEventListener('click', () => {
     const pvId = editPop._pvId;
     if (!pvId) { closeEditPop(); return; }
-    if (!confirm('Ripristinare i dati dal master? Le tue modifiche locali a comune/indirizzo/gestore verranno perse.')) return;
+    if (!confirm('Ripristinare i dati dal master? Le tue modifiche locali (anagrafica e coordinate) verranno perse.')) return;
     window.setPvFields(pvId, null);
     closeEditPop();
+  });
+  document.getElementById('editFromGps').addEventListener('click', () => {
+    if (!STATE.position) {
+      toast('Attiva prima il GPS dall\'icona "📍" in alto', 3000);
+      return;
+    }
+    document.getElementById('editLat').value = STATE.position.lat.toFixed(6);
+    document.getElementById('editLng').value = STATE.position.lng.toFixed(6);
   });
 
   // Portale gestori: modal per copiare il link share
@@ -5052,6 +5265,7 @@ async function init() {
     STATE._manualPosMode = true;
     toast('Tocca la mappa nel punto in cui ti trovi', 4000);
   });
+  document.getElementById('btnNewPv').addEventListener('click', () => { menuPop.classList.remove('open'); openNewPvEditor(); });
   document.getElementById('btnExportJson').addEventListener('click', () => { exportJson(); menuPop.classList.remove('open'); });
   document.getElementById('btnExportCsv').addEventListener('click', () => { exportCsv(); menuPop.classList.remove('open'); });
   document.getElementById('btnImportJson').addEventListener('click', () => { document.getElementById('importFile').click(); menuPop.classList.remove('open'); });
