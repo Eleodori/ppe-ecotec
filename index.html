@@ -3431,7 +3431,7 @@ function toast(msg, ms=1800) {
 
 // Build stamp visibile all'utente per capire se il browser sta servendo la versione
 // vecchia dalla cache. Bumpare ad ogni release significativa.
-const APP_VERSION = '2026-06-14.7';
+const APP_VERSION = '2026-06-14.8';
 
 const MAP_THEMES = {
   light: {
@@ -3935,6 +3935,13 @@ function renderDetail(p) {
   const dist = STATE.position ? fmtDist(haversine(STATE.position, p)) : null;
   const ggUrl = `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}`;
   const wzUrl = `https://www.waze.com/ul?ll=${p.lat}%2C${p.lng}&navigate=yes`;
+  // Naviga via indirizzo testuale: Google rigeocodifica al volo, scavalca le
+  // coords stantie del master. Utile quando le coords app cadono lontane dal
+  // PV reale (data quality). Build "indirizzo, comune (prov)" come query.
+  const addrParts = [disp.indirizzo, disp.comune, disp.prov ? '(' + disp.prov + ')' : ''].filter(Boolean).join(', ');
+  const ggAddrUrl = addrParts
+    ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(addrParts)}`
+    : null;
   body.innerHTML = `
     ${dist ? `<div class="detail-row"><div class="label">Distanza</div><div class="val mono">${dist} in linea d'aria</div></div>` : ''}
     <div class="detail-row"><div class="label">Regione</div><div class="val">${escapeHtml(p.regione)}</div></div>
@@ -3953,7 +3960,7 @@ function renderDetail(p) {
       <div class="photo-grid" id="photoGrid"></div>
       <button class="btn" id="btnAddPhoto" style="font-size:12px;padding:9px 10px">📷 Aggiungi foto</button>
     </div>
-    <div class="detail-row"><div class="label">Naviga</div><div class="val"><a href="${ggUrl}" target="_blank" rel="noopener">Google Maps</a> · <a href="${wzUrl}" target="_blank" rel="noopener">Waze</a></div></div>
+    <div class="detail-row"><div class="label">Naviga</div><div class="val"><a href="${ggUrl}" target="_blank" rel="noopener">Maps (coords)</a>${ggAddrUrl ? ` · <a href="${ggAddrUrl}" target="_blank" rel="noopener" title="Usa l'indirizzo testuale invece delle coords">Maps (via indirizzo)</a>` : ''} · <a href="${wzUrl}" target="_blank" rel="noopener">Waze</a></div></div>
   `;
 
   document.getElementById('notesInput').addEventListener('blur', ev => {
