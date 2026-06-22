@@ -8937,5 +8937,27 @@
     "sospeso": false,
     "note": "",
     "attivita_std": ""
+  },
+  {
+    "pv": 47487,
+    "regione": "LAZIO",
+    "comune": "ROMA",
+    "prov": "RM",
+    "indirizzo": "",
+    "ragSoc": "",
+    "name": "",
+    "addrGoogle": "",
+    "lat": 41.894858,
+    "lng": 12.5683369,
+    "phone": "",
+    "sopralluogo_richiesto": true,
+    "sopralluogo_fatto": false,
+    "sopralluogo_ts": null,
+    "installazione_richiesta": false,
+    "installazione_fatta": false,
+    "installazione_ts": null,
+    "sospeso": false,
+    "note": "",
+    "attivita_std": ""
   }
 ]
